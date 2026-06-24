@@ -1,8 +1,14 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, HttpException, HttpStatus } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { GoogleGenAI } from '@google/genai';
 import { ConfigService } from '@nestjs/config';
-import * as pdfParse from 'pdf-parse';
+
+export interface StructuredKnowledgeInput {
+  category: string;
+  topic: string;
+  content: string;
+  metadata?: any;
+}
 
 @Injectable()
 export class KnowledgeService {
@@ -22,87 +28,56 @@ export class KnowledgeService {
   }
 
   /**
-   * Main method to ingest a PDF buffer, parse it, and store embeddings.
+   * Ingest structured JSON arrays for zero-hallucination factual retrieval.
    */
-  async ingestDocument(filename: string, fileBuffer: Buffer, type: string = 'document') {
-    this.logger.log(`Starting ingestion for ${filename}...`);
+  async ingestStructuredData(sourceName: string, data: StructuredKnowledgeInput[]) {
+    this.logger.log(`Starting structured ingestion for source: ${sourceName}...`);
 
-    // 1. Parse PDF to extract text
-    const data = await pdfParse(fileBuffer);
-    const text = data.text;
-
-    if (!text || text.trim().length === 0) {
-      throw new Error('No text found in PDF.');
+    if (!Array.isArray(data) || data.length === 0) {
+      throw new HttpException('Input must be a non-empty array of structured knowledge.', HttpStatus.BAD_REQUEST);
     }
 
-    // 2. Chunk the text
-    const chunks = this.chunkText(text, 1000); // ~1000 characters per chunk
-    this.logger.log(`Extracted ${chunks.length} chunks from ${filename}`);
-
-    // 3. Create the Document record in the database
+    // Create a record for this data source
     const document = await this.prisma.document.create({
       data: {
-        filename,
-        type,
-        metadata: { pages: data.numpages },
+        filename: sourceName,
+        type: 'structured-json',
+        metadata: { items: data.length },
       },
     });
 
-    // 4. Generate embeddings and save chunks
-    for (const chunk of chunks) {
-      if (chunk.trim() === '') continue;
+    let ingestedCount = 0;
+
+    for (const item of data) {
+      if (!item.content || item.content.trim() === '') continue;
+
+      // Construct a highly rich string for embedding to ensure perfect semantic matching
+      const textToEmbed = `Category: ${item.category}\nTopic: ${item.topic}\nDetails: ${item.content}`;
 
       // Call Gemini for embedding
       const response = await this.ai.models.embedContent({
         model: 'text-embedding-004',
-        contents: chunk,
+        contents: textToEmbed,
       });
 
       const embedding = response.embeddings[0].values;
+      const fullJsonContent = JSON.stringify(item);
 
-      // Because we use pgvector and Prisma's Unsupported type for embeddings,
-      // we must use a raw SQL query to insert the vector securely.
+      // Store the raw JSON string as the content alongside the vector embedding
       await this.prisma.$executeRaw`
         INSERT INTO "DocumentChunk" ("id", "documentId", "content", "embedding", "createdAt")
         VALUES (
           gen_random_uuid(), 
           ${document.id}, 
-          ${chunk}, 
+          ${fullJsonContent}, 
           ${embedding}::vector, 
           NOW()
         )
       `;
+      ingestedCount++;
     }
 
-    this.logger.log(`Successfully ingested ${filename}`);
-    return { success: true, documentId: document.id, chunks: chunks.length };
-  }
-
-  /**
-   * Helper to split text into manageable chunks.
-   * A basic semantic-aware or length-based chunker.
-   */
-  private chunkText(text: string, chunkSize: number): string[] {
-    // Simple naive chunking by paragraphs/newlines first, then length
-    const paragraphs = text.split(/\n\s*\n/);
-    const chunks: string[] = [];
-    let currentChunk = '';
-
-    for (const paragraph of paragraphs) {
-      if (currentChunk.length + paragraph.length > chunkSize) {
-        if (currentChunk.trim().length > 0) {
-          chunks.push(currentChunk.trim());
-        }
-        currentChunk = paragraph;
-      } else {
-        currentChunk += '\n\n' + paragraph;
-      }
-    }
-
-    if (currentChunk.trim().length > 0) {
-      chunks.push(currentChunk.trim());
-    }
-
-    return chunks;
+    this.logger.log(`Successfully ingested ${ingestedCount} structured items from ${sourceName}`);
+    return { success: true, documentId: document.id, ingestedCount };
   }
 }
