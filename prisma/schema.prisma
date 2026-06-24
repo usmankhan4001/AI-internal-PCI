@@ -1,0 +1,55 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  extensions = [vector]
+}
+
+model User {
+  id        String    @id @default(cuid())
+  phone     String    @unique
+  name      String
+  role      String    @default("SALES_REP") // ADMIN, SALES_REP
+  createdAt DateTime  @default(now())
+  sessions  Session[]
+}
+
+model Session {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id])
+  active    Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  messages  Message[]
+}
+
+model Message {
+  id        String   @id @default(cuid())
+  sessionId String
+  session   Session  @relation(fields: [sessionId], references: [id])
+  role      String   // "user" or "assistant"
+  content   String
+  createdAt DateTime @default(now())
+}
+
+model Document {
+  id        String          @id @default(cuid())
+  filename  String
+  type      String          // e.g., "brochure", "policy"
+  metadata  Json?
+  createdAt DateTime        @default(now())
+  chunks    DocumentChunk[]
+}
+
+model DocumentChunk {
+  id         String   @id @default(cuid())
+  documentId String
+  document   Document @relation(fields: [documentId], references: [id])
+  content    String
+  embedding  Unsupported("vector(768)") // Google Gemini embeddings are 768 dimensions
+  createdAt  DateTime @default(now())
+}
