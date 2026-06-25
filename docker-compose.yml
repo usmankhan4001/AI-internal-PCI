@@ -14,5 +14,20 @@ services:
       - pgdata:/var/lib/postgresql/data
     restart: always
 
+  bot:
+    build: .
+    container_name: pci_bot_app
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=postgresql://root:rootpassword@postgres:5432/pcibot?schema=public
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - BITRIX_API_BASE=${BITRIX_API_BASE}
+      - WAHA_API_BASE=${WAHA_API_BASE}
+      - PORT=3000
+    depends_on:
+      - postgres
+    restart: always
+
 volumes:
   pgdata:
