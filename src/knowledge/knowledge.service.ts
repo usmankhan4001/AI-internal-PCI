@@ -60,7 +60,7 @@ export class KnowledgeService {
         contents: textToEmbed,
       });
 
-      const embedding = response.embeddings[0].values;
+      const embedding = response.embeddings?.[0]?.values;
       const fullJsonContent = JSON.stringify(item);
 
       // Store the raw JSON string as the content alongside the vector embedding
@@ -79,5 +79,35 @@ export class KnowledgeService {
 
     this.logger.log(`Successfully ingested ${ingestedCount} structured items from ${sourceName}`);
     return { success: true, documentId: document.id, ingestedCount };
+  }
+  /**
+   * Search structured knowledge using pgvector cosine distance.
+   */
+  async search(query: string, topK: number = 3): Promise<StructuredKnowledgeInput[]> {
+    this.logger.log(`Searching knowledge base for: "${query}"`);
+
+    // 1. Embed the user query
+    const response = await this.ai.models.embedContent({
+      model: 'text-embedding-004',
+      contents: query,
+    });
+    
+    const embedding = response.embeddings?.[0]?.values;
+    if (!embedding) {
+      throw new Error('Failed to generate embedding for search query');
+    }
+
+    // 2. Perform vector similarity search using Prisma raw query (<=> is cosine distance)
+    const results = await this.prisma.$queryRaw<
+      Array<{ id: string; content: string; distance: number }>
+    >`
+      SELECT "id", "content", "embedding" <=> ${embedding}::vector AS distance
+      FROM "DocumentChunk"
+      ORDER BY distance ASC
+      LIMIT ${topK};
+    `;
+
+    // 3. Map the raw JSON strings back to StructuredKnowledgeInput
+    return results.map((row: any) => JSON.parse(row.content) as StructuredKnowledgeInput);
   }
 }
