@@ -22,7 +22,7 @@ services:
     environment:
       - DATABASE_URL=postgresql://root:rootpassword@postgres:5432/pcibot?schema=public
       - GEMINI_API_KEY=${GEMINI_API_KEY}
-      - BITRIX_API_BASE=${BITRIX_API_BASE}
+      - BITRIX_WEBHOOK_URL=${BITRIX_WEBHOOK_URL}
       - WAHA_API_BASE=${WAHA_API_BASE}
       - PORT=3000
     depends_on:

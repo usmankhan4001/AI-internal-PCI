@@ -19,7 +19,7 @@ const ENUM_TTL_MS = 10 * 60 * 1000;
 @Injectable()
 export class BitrixService implements OnApplicationBootstrap {
   private readonly logger = new Logger(BitrixService.name);
-  private readonly bitrixApiBase: string;
+  private readonly webhookUrl: string;
 
   // ── Full inventory cache ──────────────────────────────────────
   private _inventoryCache = new Map<string, NormalizedUnit[]>();
@@ -29,15 +29,15 @@ export class BitrixService implements OnApplicationBootstrap {
   private _refreshTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(private configService: ConfigService) {
-    const base = this.configService.get<string>('BITRIX_API_BASE');
-    if (!base) {
-      this.logger.warn('BITRIX_API_BASE is not defined in the environment. Bitrix integration will fail.');
+    const url = this.configService.get<string>('BITRIX_WEBHOOK_URL') || this.configService.get<string>('BITRIX_API_BASE');
+    if (!url) {
+      this.logger.warn('BITRIX_WEBHOOK_URL is not defined in the environment. Bitrix integration will fail.');
     }
-    this.bitrixApiBase = base?.replace(/\/$/, '') || '';
+    this.webhookUrl = url?.replace(/\/$/, '') || '';
   }
 
   async onApplicationBootstrap() {
-    if (this.bitrixApiBase) {
+    if (this.webhookUrl) {
       await this.warmCache();
       this.startCacheRefresh();
     }
@@ -55,82 +55,84 @@ export class BitrixService implements OnApplicationBootstrap {
   }
   get totalCachedUnits(): number { return this._allUnitsFlat.length; }
 
-  private async post<T>(path: string, body: unknown, timeoutMs = 30_000): Promise<T> {
+  private async callApi<T>(method: string, body: unknown = {}, timeoutMs = 30_000): Promise<T> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const res = await fetch(`${this.bitrixApiBase}${path}`, {
+      const res = await fetch(`${this.webhookUrl}/${method}.json`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
         signal: controller.signal,
       });
-      if (!res.ok) throw new Error(`Bitrix ${path} -> ${res.status}`);
-      return (await res.json()) as T;
+      if (!res.ok) throw new Error(`Bitrix ${method} -> ${res.status}`);
+      const data = await res.json();
+      if (data.error) throw new Error(`Bitrix API Error: ${data.error_description || data.error}`);
+      return data as T;
     } finally {
       clearTimeout(timeout);
     }
   }
 
-  private async get<T>(path: string, timeoutMs = 15_000): Promise<T> {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      const res = await fetch(`${this.bitrixApiBase}${path}`, {
-        headers: { 'Content-Type': 'application/json' },
-        signal: controller.signal,
-      });
-      if (!res.ok) throw new Error(`Bitrix ${path} -> ${res.status}`);
-      return (await res.json()) as T;
-    } finally {
-      clearTimeout(timeout);
-    }
-  }
-
-  /** All projects. */
-  async listProjects(): Promise<BitrixEnum[]> {
-    return this.cachedEnum('projects', async () => {
-      const data = await this.get<{ projectData?: { productPropertyEnums?: BitrixEnum[] } }>(
-        '/all-projects',
-      );
-      return data.projectData?.productPropertyEnums ?? [];
-    });
-  }
-
-  /** Enum values for any property id (types=177, floors=135, categories=139). */
-  async listProperties(propertyId: number): Promise<BitrixEnum[]> {
+  /** Fetch properties to extract enum VALUES. Native Bitrix endpoint. */
+  private async listPropertyEnums(propertyId: number): Promise<BitrixEnum[]> {
     return this.cachedEnum(`prop-${propertyId}`, async () => {
-      const data = await this.post<{ properties?: { productPropertyEnums?: BitrixEnum[] } }>(
-        '/list-properties',
-        { propertyId },
-      );
-      return data.properties?.productPropertyEnums ?? [];
+      const data = await this.callApi<{ result: any[] }>('crm.product.property.list', {
+        filter: { ID: propertyId }
+      });
+      
+      const prop = data.result?.[0];
+      if (!prop || !prop.VALUES) return [];
+
+      // Bitrix returns VALUES as an object with enum IDs as keys or an array
+      const valuesObj = prop.VALUES;
+      const enums: BitrixEnum[] = [];
+      
+      for (const key of Object.keys(valuesObj)) {
+        const val = valuesObj[key];
+        enums.push({
+          id: Number(val.ID),
+          value: val.VALUE,
+          sort: Number(val.SORT || 0),
+          xmlId: val.XML_ID
+        });
+      }
+      
+      return enums.sort((a, b) => (a.sort || 0) - (b.sort || 0));
     });
   }
 
-  listTypes() {
-    return this.listProperties(PROP.TYPE);
-  }
-  listFloors() {
-    return this.listProperties(PROP.FLOOR);
-  }
-  listCategories() {
-    return this.listProperties(PROP.CATEGORY);
-  }
+  async listProjects(): Promise<BitrixEnum[]> { return this.listPropertyEnums(PROP.PROJECT); }
+  listTypes() { return this.listPropertyEnums(PROP.TYPE); }
+  listFloors() { return this.listPropertyEnums(PROP.FLOOR); }
+  listCategories() { return this.listPropertyEnums(PROP.CATEGORY); }
 
-  /** Raw available units matching a filter (filter values are enum IDs). */
+  /**
+   * Search LIVE units natively. We can filter directly on PROPERTY_X.
+   */
   async searchUnits(filter: UnitFilter = {}): Promise<CatalogProduct[]> {
-    const data = await this.post<{ products?: CatalogProduct[] }>('/catalog-products', {
-      filter,
-    }, 60_000); // 60s timeout for large result sets
-    return data.products ?? [];
+    const nativeFilter: any = {
+      // Only available units (if we want to force it at API level, but we usually fetch all in warmup)
+    };
+    
+    if (filter.project) nativeFilter[`PROPERTY_${PROP.PROJECT}`] = filter.project;
+    if (filter.propertyType) nativeFilter[`PROPERTY_${PROP.TYPE}`] = filter.propertyType;
+    if (filter.propertyCategory) nativeFilter[`PROPERTY_${PROP.CATEGORY}`] = filter.propertyCategory;
+    if (filter.propertyFloor) nativeFilter[`PROPERTY_${PROP.FLOOR}`] = filter.propertyFloor;
+
+    const data = await this.callApi<{ result: CatalogProduct[] }>('crm.product.list', {
+      filter: nativeFilter,
+      select: ["ID", "NAME", "PRICE", `PROPERTY_${PROP.PROJECT}`, `PROPERTY_${PROP.TYPE}`, `PROPERTY_${PROP.CATEGORY}`, `PROPERTY_${PROP.FLOOR}`, `PROPERTY_${PROP.AVAILABILITY}`, `PROPERTY_${PROP.BASE_RATE}`, `PROPERTY_${PROP.GROSS_AREA}`, `PROPERTY_${PROP.NET_AREA}`]
+    }, 60_000); 
+    
+    return data.result ?? [];
   }
 
   /** Full product detail. */
   async getProduct(productId: string): Promise<ProductDetail | null> {
     try {
-      const data = await this.post<{ product?: ProductDetail }>('/product', { productId }, 15_000);
-      return data.product ?? null;
+      const data = await this.callApi<{ result: ProductDetail }>('crm.product.get', { id: productId }, 15_000);
+      return data.result ?? null;
     } catch (err) {
       this.logger.error(`Bitrix getProduct failed for ID ${productId}:`, err);
       return null;
@@ -142,7 +144,6 @@ export class BitrixService implements OnApplicationBootstrap {
    * resolved project/type/floor names and computed price (baseRate * grossArea).
    */
   async getNormalizedUnit(productId: string): Promise<NormalizedUnit | null> {
-    // Check cache first
     if (this._cacheReady) {
       const cached = this._allUnitsFlat.find(u => u.id === productId);
       if (cached) return cached;
@@ -170,16 +171,14 @@ export class BitrixService implements OnApplicationBootstrap {
     const nameOf = (list: BitrixEnum[], id?: string) =>
       list.find((e) => String(e.id) === String(id))?.value;
 
-    const projectId = p.PROPERTY_173?.value;
-    const typeId = p.PROPERTY_177?.value;
-    const categoryId = p.PROPERTY_139?.value;
-    const floorId = p.PROPERTY_135?.value;
-    const baseRate = num(p.PROPERTY_115?.value);
-    const grossArea = num(p.PROPERTY_113?.value);
-    const netArea = num(p.PROPERTY_149?.value);
+    const projectId = p[`PROPERTY_${PROP.PROJECT}`]?.valueId || p[`PROPERTY_${PROP.PROJECT}`]?.value;
+    const typeId = p[`PROPERTY_${PROP.TYPE}`]?.valueId || p[`PROPERTY_${PROP.TYPE}`]?.value;
+    const categoryId = p[`PROPERTY_${PROP.CATEGORY}`]?.valueId || p[`PROPERTY_${PROP.CATEGORY}`]?.value;
+    const floorId = p[`PROPERTY_${PROP.FLOOR}`]?.valueId || p[`PROPERTY_${PROP.FLOOR}`]?.value;
+    const baseRate = num(p[`PROPERTY_${PROP.BASE_RATE}`]?.value);
+    const grossArea = num(p[`PROPERTY_${PROP.GROSS_AREA}`]?.value);
+    const netArea = num(p[`PROPERTY_${PROP.NET_AREA}`]?.value);
 
-    // Pricing: baseRate * grossArea, except Box Park-3 (project 673) on floors
-    // 299/301/249 which price on net area (matches changeTheItemFeilds.js).
     const useNetArea =
       projectId === '673' && ['299', '301', '249'].includes(floorId ?? '');
     const areaForPrice = useNetArea ? netArea : grossArea;
@@ -199,16 +198,11 @@ export class BitrixService implements OnApplicationBootstrap {
       grossArea,
       netArea,
       totalPrice: baseRate * areaForPrice,
-      available: p.PROPERTY_99?.value === AVAILABLE_VALUE,
+      available: (p[`PROPERTY_${PROP.AVAILABILITY}`]?.valueId || p[`PROPERTY_${PROP.AVAILABILITY}`]?.value) === AVAILABLE_VALUE,
     };
   }
 
   // ── Cached search (instant, no API calls) ────────────────────
-  /**
-   * Search the in-memory inventory cache. Returns units matching the filter
-   * with full details (project, type, floor, area, price). Instant.
-   * Falls back to live API if cache is not ready.
-   */
   searchCached(filter: {
     projectId?: string;
     type?: string;
@@ -234,18 +228,16 @@ export class BitrixService implements OnApplicationBootstrap {
       pool = pool.filter(u => fuzzy(u.categoryName, filter.category!));
     }
 
-    // Only return available units
     return pool.filter(u => u.available);
   }
 
   // ── Cache warmup ──────────────────────────────────────────────
   /**
-   * Fetch ALL projects and ALL their units from Bitrix. Runs on startup
-   * and every 10 minutes. Each project's units are batch-fetched.
+   * Fetch ALL units from Bitrix natively using pagination.
    */
   async warmCache(): Promise<void> {
-    const start = Date.now();
-    this.logger.log('Warming Bitrix inventory cache...');
+    const startTime = Date.now();
+    this.logger.log('Warming Bitrix inventory cache natively...');
 
     try {
       const [projects, types, floors, categories] = await Promise.all([
@@ -259,39 +251,35 @@ export class BitrixService implements OnApplicationBootstrap {
       let totalUnits = 0;
       let totalAvailable = 0;
 
-      // Fetch units for each project
-      for (const proj of projects) {
-        try {
-          const raw = await this.searchUnits({ project: String(proj.id) });
-          if (raw.length === 0) continue;
+      // Bitrix native batch fetching with start token
+      let nextStart = 0;
+      let keepFetching = true;
+      const allRawProducts: ProductDetail[] = [];
 
-          // Batch-normalize: fetch full details for each unit
-          // Process in batches of 10 to avoid overwhelming the API
-          const normalized: NormalizedUnit[] = [];
-          const BATCH_SIZE = 10;
+      while (keepFetching) {
+        const data = await this.callApi<{ result: ProductDetail[], next?: number }>('crm.product.list', {
+          start: nextStart,
+          select: ["*", "PROPERTY_*"] // Fetch everything for warmup to avoid 1000s of getProduct calls
+        });
 
-          for (let i = 0; i < raw.length; i += BATCH_SIZE) {
-            const batch = raw.slice(i, i + BATCH_SIZE);
-            const results = await Promise.allSettled(
-              batch.map(u => this.getProduct(u.ID)),
-            );
+        const products = data.result || [];
+        allRawProducts.push(...products);
 
-            for (const r of results) {
-              if (r.status === 'fulfilled' && r.value) {
-                const unit = this.normalizeProduct(r.value, projects, types, floors, categories);
-                normalized.push(unit);
-                totalUnits++;
-                if (unit.available) totalAvailable++;
-              }
-            }
-          }
-
-          if (normalized.length > 0) {
-            newCache.set(String(proj.id), normalized);
-          }
-        } catch (err) {
-          this.logger.warn(`Cache warmup: failed to fetch units for ${proj.value}:`, err instanceof Error ? err.message : err);
+        if (data.next) {
+          nextStart = data.next;
+        } else {
+          keepFetching = false;
         }
+      }
+
+      for (const p of allRawProducts) {
+        const unit = this.normalizeProduct(p, projects, types, floors, categories);
+        if (unit.projectId) {
+          if (!newCache.has(unit.projectId)) newCache.set(unit.projectId, []);
+          newCache.get(unit.projectId)!.push(unit);
+        }
+        totalUnits++;
+        if (unit.available) totalAvailable++;
       }
 
       this._inventoryCache = newCache;
@@ -299,17 +287,15 @@ export class BitrixService implements OnApplicationBootstrap {
       this._cacheReady = true;
       this._cacheAge = Date.now();
 
-      const elapsed = ((Date.now() - start) / 1000).toFixed(1);
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
       this.logger.log(
-        `Inventory cache warm: ${totalAvailable} available / ${totalUnits} total units across ${newCache.size} projects (${elapsed}s)`,
+        `Native Inventory cache warm: ${totalAvailable} available / ${totalUnits} total units across ${newCache.size} projects (${elapsed}s)`,
       );
     } catch (err) {
       this.logger.error('Cache warmup failed:', err);
-      // Don't wipe existing cache on failure — stale data > no data
     }
   }
 
-  /** Start background cache refresh every N ms (default: 10 min). */
   startCacheRefresh(intervalMs = 10 * 60 * 1000): void {
     if (this._refreshTimer) clearInterval(this._refreshTimer);
     this._refreshTimer = setInterval(() => {
@@ -317,13 +303,11 @@ export class BitrixService implements OnApplicationBootstrap {
     }, intervalMs);
   }
 
-  /** Resolve a project name (fuzzy, case-insensitive) to its enum id. */
   async resolveProjectId(nameOrId: string): Promise<string | null> {
     if (/^\d+$/.test(nameOrId)) return nameOrId;
     const projects = await this.listProjects();
     const q = nameOrId.trim().toLowerCase();
 
-    // 2. Fall back to standard fuzzy match against Bitrix names
     const hit =
       projects.find((p) => p.value.toLowerCase() === q) ??
       projects.find((p) => p.value.toLowerCase().includes(q));
