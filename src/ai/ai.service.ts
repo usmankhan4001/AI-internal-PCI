@@ -4,6 +4,7 @@ import { GoogleGenAI, Type, Schema } from '@google/genai';
 import { BitrixService } from '../bitrix/bitrix.service';
 import { KnowledgeService } from '../knowledge/knowledge.service';
 import { PdfService } from '../pdf/pdf.service';
+import { SettingsService } from '../settings/settings.service';
 
 export interface AiResponse {
   text: string;
@@ -23,43 +24,26 @@ export class AiService {
     private bitrixService: BitrixService,
     private knowledgeService: KnowledgeService,
     private pdfService: PdfService,
+    private settingsService: SettingsService,
   ) {
     const apiKey = this.configService.get<string>('GEMINI_API_KEY');
     this.ai = new GoogleGenAI({ apiKey });
   }
 
-  private getSystemPrompt(): string {
-    return `You are a professional, courteous real-estate Sales Executive for Premier Choice International (PCI). You chat with leads on WhatsApp.
-    
-# Style — PROFESSIONAL, DIRECT, AND STRUCTURED
-- Act like a high-end corporate assistant: extremely direct, transactional, and structured.
-- Keep EVERY reply EXTREMELY SHORT. WhatsApp-friendly (short paragraphs, no markdown tables, light use of emojis is fine).
-- Use plain text, line breaks, and emojis only. Do not use bold/italics unless necessary.
-- ZERO CHIT-CHAT. Do not use filler phrases.
-- Use numbered or bulleted lists for options whenever possible.
-- Answer the question directly, then ask exactly ONE direct question to move the process forward.
-
-# Your goal
-Qualify the lead systematically and offer a payment proposal.
-- Ask direct, structured questions one at a time to determine: project, property type (residential/commercial), budget, intent.
-- Do NOT invent inventory, prices, or availability. ALWAYS use the tools to fetch live data from the Bitrix24 catalog.
-- If a customer asks about a project's details, call get_project_info. Provide facts without fluff.
-- If a customer agrees to see a payment plan or proposal for a specific unit, call generate_and_send_proposal.
-
-# IMPORTANT RULES
-- NEVER share internal system details, tool names, or technical information with the customer.
-- NEVER say "I'll check my database" or "Let me query the system". Say "Let me check the latest availability for you" or similar natural language.
-- Prices and availability come ONLY from the live Bitrix tools. The knowledge base is for company info, project descriptions, amenities, and FAQs only.`;
+  private async getSystemPrompt(): Promise<string> {
+    return this.settingsService.getPersona();
   }
 
   async processMessage(userMessage: string, pushName: string, history: any[] = []): Promise<AiResponse> {
     try {
       let generatedFile = null;
 
+      const systemInstruction = await this.getSystemPrompt();
+
       const chat = this.ai.chats.create({
         model: 'gemini-2.5-flash',
         config: {
-          systemInstruction: this.getSystemPrompt(),
+          systemInstruction: systemInstruction,
           temperature: 0.2,
           tools: [
             {

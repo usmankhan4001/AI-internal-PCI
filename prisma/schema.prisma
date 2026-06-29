@@ -58,3 +58,10 @@ model DocumentChunk {
   embedding  Unsupported("vector(768)") // Google Gemini embeddings are 768 dimensions
   createdAt  DateTime @default(now())
 }
+
+model Setting {
+  id        String   @id @default("global")
+  persona   String   @db.Text
+  updatedAt DateTime @updatedAt
+}
+

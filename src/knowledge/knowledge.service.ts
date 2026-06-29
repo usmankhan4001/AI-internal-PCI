@@ -110,4 +110,19 @@ export class KnowledgeService {
     // 3. Map the raw JSON strings back to StructuredKnowledgeInput
     return results.map((row: any) => JSON.parse(row.content) as StructuredKnowledgeInput);
   }
+
+  async getAllDocuments() {
+    return this.prisma.document.findMany({
+      include: {
+        _count: { select: { chunks: true } }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+  }
+
+  async deleteDocument(id: string) {
+    // Due to constraints, delete chunks first then document
+    await this.prisma.documentChunk.deleteMany({ where: { documentId: id } });
+    return this.prisma.document.delete({ where: { id } });
+  }
 }

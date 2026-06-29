@@ -9,12 +9,13 @@ import { AiModule } from './ai/ai.module';
 import { SessionModule } from './session/session.module';
 import { WhatsappModule } from './whatsapp/whatsapp.module';
 import { PdfModule } from './pdf/pdf.module';
+import { SettingsModule } from './settings/settings.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     PrismaModule, 
-    KnowledgeModule, BitrixModule, AiModule, SessionModule, WhatsappModule, PdfModule
+    KnowledgeModule, BitrixModule, AiModule, SessionModule, WhatsappModule, PdfModule, SettingsModule
   ],
   controllers: [AppController],
   providers: [AppService],
