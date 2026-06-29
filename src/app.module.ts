@@ -20,7 +20,7 @@ import { ChatModule } from './chat/chat.module';
     ConfigModule.forRoot({ isGlobal: true }),
     ServeStaticModule.forRoot({
       rootPath: join(__dirname, '..', 'frontend', 'dist'),
-      exclude: ['/api/(.*)'],
+      exclude: ['/api/{*splat}', '/webhook/{*splat}'],
     }),
     PrismaModule, 
     KnowledgeModule, BitrixModule, AiModule, SessionModule, WhatsappModule, PdfModule, SettingsModule, ChatModule
