@@ -5,11 +5,10 @@ import { PrismaService } from '../prisma/prisma.service';
 export class SettingsService {
   constructor(private prisma: PrismaService) {}
 
-  async getPersona(): Promise<string> {
-    const setting = await this.prisma.setting.findUnique({ where: { id: 'global' } });
-    if (setting) return setting.persona;
-
-    const defaultPersona = `You are a professional, courteous real-estate Sales Executive for Premier Choice International (PCI). You chat with leads on WhatsApp.
+  async getSettings(): Promise<any> {
+    let setting = await this.prisma.setting.findUnique({ where: { id: 'global' } });
+    if (!setting) {
+      const defaultPersona = `You are a professional, courteous real-estate Sales Executive for Premier Choice International (PCI). You chat with leads on WhatsApp.
     
 # Style — PROFESSIONAL, DIRECT, AND STRUCTURED
 - Act like a high-end corporate assistant: extremely direct, transactional, and structured.
@@ -31,20 +30,33 @@ Qualify the lead systematically and offer a payment proposal.
 - NEVER say "I'll check my database" or "Let me query the system". Say "Let me check the latest availability for you" or similar natural language.
 - Prices and availability come ONLY from the live Bitrix tools. The knowledge base is for company info, project descriptions, amenities, and FAQs only.`;
 
-    await this.prisma.setting.create({
-      data: {
-        id: 'global',
-        persona: defaultPersona
-      }
-    });
-    return defaultPersona;
+      setting = await this.prisma.setting.create({
+        data: {
+          id: 'global',
+          persona: defaultPersona,
+          wahaApiBase: 'http://localhost:3000',
+          bitrixWebhookUrl: ''
+        }
+      });
+    }
+    return setting;
   }
 
-  async updatePersona(persona: string): Promise<any> {
-    return this.prisma.setting.upsert({
+  async getPersona(): Promise<string> {
+    const setting = await this.getSettings();
+    return setting.persona;
+  }
+
+  async updateSettings(data: { persona?: string; wahaApiBase?: string; bitrixWebhookUrl?: string }): Promise<any> {
+    // Upsert will create it if it doesn't exist, though getSettings is usually called first
+    const updateData: any = {};
+    if (data.persona !== undefined) updateData.persona = data.persona;
+    if (data.wahaApiBase !== undefined) updateData.wahaApiBase = data.wahaApiBase;
+    if (data.bitrixWebhookUrl !== undefined) updateData.bitrixWebhookUrl = data.bitrixWebhookUrl;
+
+    return this.prisma.setting.update({
       where: { id: 'global' },
-      update: { persona },
-      create: { id: 'global', persona },
+      data: updateData,
     });
   }
 }

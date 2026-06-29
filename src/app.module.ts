@@ -13,6 +13,7 @@ import { SettingsModule } from './settings/settings.module';
 
 import { ServeStaticModule } from '@nestjs/serve-static';
 import { join } from 'path';
+import { ChatModule } from './chat/chat.module';
 
 @Module({
   imports: [
@@ -22,7 +23,7 @@ import { join } from 'path';
       exclude: ['/api/(.*)'],
     }),
     PrismaModule, 
-    KnowledgeModule, BitrixModule, AiModule, SessionModule, WhatsappModule, PdfModule, SettingsModule
+    KnowledgeModule, BitrixModule, AiModule, SessionModule, WhatsappModule, PdfModule, SettingsModule, ChatModule
   ],
   controllers: [AppController],
   providers: [AppService],

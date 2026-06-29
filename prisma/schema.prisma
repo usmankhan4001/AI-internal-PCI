@@ -60,8 +60,10 @@ model DocumentChunk {
 }
 
 model Setting {
-  id        String   @id @default("global")
-  persona   String   @db.Text
-  updatedAt DateTime @updatedAt
+  id               String   @id @default("global")
+  persona          String   @db.Text
+  wahaApiBase      String?  @default("http://localhost:3000")
+  bitrixWebhookUrl String?
+  updatedAt        DateTime @updatedAt
 }
 
