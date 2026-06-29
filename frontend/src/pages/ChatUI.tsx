@@ -1,6 +1,9 @@
 import { useState, useRef, useEffect } from 'react';
-import { TextInput, ActionIcon, Text, ScrollArea, Loader, Group, Button, Avatar } from '@mantine/core';
-import { IconSend, IconDownload, IconRobot, IconUser } from '@tabler/icons-react';
+import { Box, TextField, IconButton, Typography, Avatar, CircularProgress, Button } from '@mui/material';
+import SendIcon from '@mui/icons-material/Send';
+import DownloadIcon from '@mui/icons-material/Download';
+import SmartToyIcon from '@mui/icons-material/SmartToy';
+import PersonIcon from '@mui/icons-material/Person';
 import axios from 'axios';
 
 const API_BASE = '/api';
@@ -22,14 +25,20 @@ export default function ChatUI() {
   const [loading, setLoading] = useState(false);
   const viewport = useRef<HTMLDivElement>(null);
 
-  const scrollToBottom = () => viewport.current?.scrollTo({ top: viewport.current.scrollHeight, behavior: 'smooth' });
+  const scrollToBottom = () => {
+    if (viewport.current) {
+      viewport.current.scrollTop = viewport.current.scrollHeight;
+    }
+  };
 
   useEffect(() => {
     scrollToBottom();
   }, [messages, loading]);
 
-  const handleSend = async () => {
-    if (!input.trim()) return;
+  const handleSend = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!input.trim() || loading) return;
+    
     const userMsg = input.trim();
     setInput('');
     setMessages(prev => [...prev, { role: 'user', text: userMsg }]);
@@ -55,102 +64,99 @@ export default function ChatUI() {
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', position: 'relative' }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', position: 'relative', bgcolor: '#212121' }}>
       
       {/* Messages Area */}
-      <ScrollArea viewportRef={viewport} style={{ flex: 1, paddingBottom: '100px' }}>
-        <div style={{ maxWidth: '800px', margin: '0 auto', padding: '2rem 1rem' }}>
+      <Box ref={viewport} sx={{ flex: 1, overflowY: 'auto', pb: 15 }}>
+        <Box sx={{ maxWidth: '800px', mx: 'auto', p: 3 }}>
           {messages.map((msg, idx) => (
-            <Group key={idx} align="flex-start" wrap="nowrap" mb="xl">
-              <Avatar 
-                color={msg.role === 'user' ? 'blue' : 'dark'} 
-                radius="xl"
-                size="md"
-              >
-                {msg.role === 'user' ? <IconUser size="1.2rem"/> : <IconRobot size="1.2rem"/>}
+            <Box key={idx} sx={{ display: 'flex', gap: 2, mb: 4 }}>
+              <Avatar sx={{ bgcolor: msg.role === 'user' ? '#90caf9' : '#424242', width: 36, height: 36 }}>
+                {msg.role === 'user' ? <PersonIcon /> : <SmartToyIcon />}
               </Avatar>
-              <div style={{ flex: 1, paddingTop: '4px' }}>
-                <Text size="sm" fw={600} mb="xs" c="gray.4">
+              <Box sx={{ flex: 1, pt: 0.5 }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 0.5, color: '#e0e0e0' }}>
                   {msg.role === 'user' ? 'You' : 'PCI Assistant'}
-                </Text>
-                <Text size="md" style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6 }} c="gray.1">
+                </Typography>
+                <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.6, color: '#bdbdbd' }}>
                   {msg.text}
-                </Text>
+                </Typography>
                 
                 {msg.file && (
                   <Button 
-                    mt="md"
-                    size="sm" 
-                    variant="light" 
-                    color="gray"
-                    leftSection={<IconDownload size="1rem" />}
+                    variant="outlined" 
+                    color="inherit" 
+                    size="small" 
+                    startIcon={<DownloadIcon />} 
                     onClick={() => downloadBase64File(msg.file!.base64, msg.file!.filename)}
+                    sx={{ mt: 2, textTransform: 'none' }}
                   >
                     Download {msg.file.filename}
                   </Button>
                 )}
-              </div>
-            </Group>
+              </Box>
+            </Box>
           ))}
           {loading && (
-            <Group align="flex-start" wrap="nowrap" mb="xl">
-              <Avatar color="dark" radius="xl" size="md">
-                <IconRobot size="1.2rem"/>
+            <Box sx={{ display: 'flex', gap: 2, mb: 4 }}>
+              <Avatar sx={{ bgcolor: '#424242', width: 36, height: 36 }}>
+                <SmartToyIcon />
               </Avatar>
-              <div style={{ flex: 1, paddingTop: '10px' }}>
-                <Loader color="gray" type="dots" />
-              </div>
-            </Group>
+              <Box sx={{ flex: 1, pt: 1 }}>
+                <CircularProgress size={20} sx={{ color: '#9e9e9e' }} />
+              </Box>
+            </Box>
           )}
-        </div>
-      </ScrollArea>
+        </Box>
+      </Box>
 
       {/* Input Area */}
-      <div style={{ 
+      <Box sx={{ 
         position: 'absolute', 
-        bottom: 0, 
-        left: 0, 
-        right: 0, 
-        padding: '24px',
-        background: 'linear-gradient(180deg, transparent 0%, #212121 50%)'
+        bottom: 0, left: 0, right: 0, 
+        p: 3,
+        background: 'linear-gradient(180deg, transparent 0%, #212121 40%)'
       }}>
-        <div style={{ maxWidth: '800px', margin: '0 auto' }}>
-          <form onSubmit={(e) => { e.preventDefault(); handleSend(); }}>
-            <TextInput
+        <Box sx={{ maxWidth: '800px', mx: 'auto' }}>
+          <form onSubmit={handleSend}>
+            <TextField
+              fullWidth
               placeholder="Message PCI Assistant..."
               value={input}
-              onChange={(e) => setInput(e.currentTarget.value)}
+              onChange={(e) => setInput(e.target.value)}
               disabled={loading}
-              size="lg"
-              radius="xl"
-              styles={{
+              variant="outlined"
+              slotProps={{
                 input: {
-                  backgroundColor: '#2C2E33',
-                  border: 'none',
-                  paddingRight: '50px'
+                  sx: { 
+                    borderRadius: 8, 
+                    bgcolor: '#2C2E33', 
+                    color: 'white',
+                    pr: 1
+                  },
+                  endAdornment: (
+                    <IconButton 
+                      onClick={handleSend} 
+                      disabled={!input.trim() || loading}
+                      sx={{ 
+                        bgcolor: input.trim() ? '#90caf9' : 'transparent',
+                        color: input.trim() ? '#212121' : '#757575',
+                        '&:hover': { bgcolor: input.trim() ? '#64b5f6' : 'transparent' }
+                      }}
+                    >
+                      <SendIcon fontSize="small" />
+                    </IconButton>
+                  )
                 }
               }}
-              rightSection={
-                <ActionIcon 
-                  size={32} 
-                  radius="xl" 
-                  color={input.trim() ? "white" : "dark.4"} 
-                  variant={input.trim() ? "filled" : "transparent"} 
-                  onClick={handleSend} 
-                  disabled={!input.trim() || loading}
-                  style={{ marginRight: '8px' }}
-                >
-                  <IconSend size="1.2rem" stroke={1.5} color={input.trim() ? "black" : "inherit"}/>
-                </ActionIcon>
-              }
             />
           </form>
-          <Text size="xs" ta="center" c="dimmed" mt="sm">
+          <Typography variant="caption" sx={{ display: 'block', textAlign: 'center', color: '#757575', mt: 1 }}>
             AI can make mistakes. Verify critical inventory with Bitrix CRM.
-          </Text>
-        </div>
-      </div>
+          </Typography>
+        </Box>
+      </Box>
 
-    </div>
+    </Box>
   );
 }

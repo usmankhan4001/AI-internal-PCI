@@ -1,90 +1,111 @@
-import { AppShell, NavLink, Title, Text, Stack } from '@mantine/core';
 import { Routes, Route, Link, useLocation } from 'react-router-dom';
-import { IconDashboard, IconBook, IconSettings, IconMessageChatbot, IconBrandWhatsapp } from '@tabler/icons-react';
-import Dashboard from './pages/Dashboard';
+import { Box, Drawer, List, ListItem, ListItemButton, ListItemIcon, ListItemText, Typography, Divider } from '@mui/material';
+import ChatIcon from '@mui/icons-material/Chat';
+import MenuBookIcon from '@mui/icons-material/MenuBook';
+import SettingsIcon from '@mui/icons-material/Settings';
+import WhatsAppIcon from '@mui/icons-material/WhatsApp';
+
+import ChatUI from './pages/ChatUI';
 import KnowledgeBase from './pages/KnowledgeBase';
 import Settings from './pages/Settings';
-import ChatUI from './pages/ChatUI';
 import WhatsAppConfig from './pages/WhatsAppConfig';
+
+const drawerWidth = 260;
 
 export default function App() {
   const location = useLocation();
 
   return (
-    <AppShell
-      navbar={{ width: 260, breakpoint: 'sm' }}
-      padding="0"
-    >
-      <AppShell.Navbar p="md" bg="#171717" style={{ borderRight: 'none' }}>
-        <Title order={4} c="white" mb="xl" px="sm">PCI AI Assistant</Title>
+    <Box sx={{ display: 'flex', height: '100vh' }}>
+      <Drawer
+        sx={{
+          width: drawerWidth,
+          flexShrink: 0,
+          '& .MuiDrawer-paper': {
+            width: drawerWidth,
+            boxSizing: 'border-box',
+            backgroundColor: '#171717',
+            borderRight: 'none',
+          },
+        }}
+        variant="permanent"
+        anchor="left"
+      >
+        <Box sx={{ p: 2, mb: 2 }}>
+          <Typography variant="h6" color="white" sx={{ fontWeight: 'bold' }}>
+            PCI AI Assistant
+          </Typography>
+        </Box>
         
-        <Stack gap="xs">
-          <NavLink
-            component={Link}
-            to="/chat"
-            label="Chat"
-            leftSection={<IconMessageChatbot size="1.2rem" stroke={1.5} />}
-            active={location.pathname === '/chat'}
-            variant="filled"
-            color="dark.6"
-            style={{ borderRadius: '8px' }}
-          />
-          <NavLink
-            component={Link}
-            to="/"
-            label="Dashboard"
-            leftSection={<IconDashboard size="1.2rem" stroke={1.5} />}
-            active={location.pathname === '/'}
-            variant="filled"
-            color="dark.6"
-            style={{ borderRadius: '8px' }}
-          />
-          <NavLink
-            component={Link}
-            to="/knowledge"
-            label="Knowledge Base"
-            leftSection={<IconBook size="1.2rem" stroke={1.5} />}
-            active={location.pathname === '/knowledge'}
-            variant="filled"
-            color="dark.6"
-            style={{ borderRadius: '8px' }}
-          />
-          <NavLink
-            component={Link}
-            to="/waha"
-            label="WhatsApp Integrations"
-            leftSection={<IconBrandWhatsapp size="1.2rem" stroke={1.5} />}
-            active={location.pathname === '/waha'}
-            variant="filled"
-            color="dark.6"
-            style={{ borderRadius: '8px' }}
-          />
-          <NavLink
-            component={Link}
-            to="/settings"
-            label="Persona & Settings"
-            leftSection={<IconSettings size="1.2rem" stroke={1.5} />}
-            active={location.pathname === '/settings'}
-            variant="filled"
-            color="dark.6"
-            style={{ borderRadius: '8px' }}
-          />
-        </Stack>
+        <List sx={{ px: 1 }}>
+          <ListItem disablePadding sx={{ mb: 1 }}>
+            <ListItemButton 
+              component={Link} 
+              to="/" 
+              selected={location.pathname === '/'}
+              sx={{ borderRadius: 2 }}
+            >
+              <ListItemIcon sx={{ minWidth: 40 }}><ChatIcon /></ListItemIcon>
+              <ListItemText primary="Chat" />
+            </ListItemButton>
+          </ListItem>
+        </List>
 
-        <div style={{ marginTop: 'auto', paddingTop: '1rem' }}>
-          <Text size="xs" c="dimmed" ta="center">PCI Internal Tools v2.0</Text>
-        </div>
-      </AppShell.Navbar>
+        <Box sx={{ flexGrow: 1 }} />
 
-      <AppShell.Main style={{ background: '#212121', height: '100vh', display: 'flex', flexDirection: 'column' }}>
+        <Divider sx={{ mb: 2, borderColor: 'rgba(255,255,255,0.1)' }} />
+        
+        <List sx={{ px: 1 }}>
+          <ListItem disablePadding>
+            <ListItemButton 
+              component={Link} 
+              to="/knowledge" 
+              selected={location.pathname === '/knowledge'}
+              sx={{ borderRadius: 2 }}
+            >
+              <ListItemIcon sx={{ minWidth: 40 }}><MenuBookIcon /></ListItemIcon>
+              <ListItemText primary="Knowledge Base" />
+            </ListItemButton>
+          </ListItem>
+          <ListItem disablePadding>
+            <ListItemButton 
+              component={Link} 
+              to="/waha" 
+              selected={location.pathname === '/waha'}
+              sx={{ borderRadius: 2 }}
+            >
+              <ListItemIcon sx={{ minWidth: 40 }}><WhatsAppIcon /></ListItemIcon>
+              <ListItemText primary="WhatsApp" />
+            </ListItemButton>
+          </ListItem>
+          <ListItem disablePadding>
+            <ListItemButton 
+              component={Link} 
+              to="/settings" 
+              selected={location.pathname === '/settings'}
+              sx={{ borderRadius: 2 }}
+            >
+              <ListItemIcon sx={{ minWidth: 40 }}><SettingsIcon /></ListItemIcon>
+              <ListItemText primary="Persona" />
+            </ListItemButton>
+          </ListItem>
+        </List>
+        
+        <Box sx={{ p: 2, textAlign: 'center' }}>
+          <Typography variant="caption" color="text.secondary">
+            PCI Internal Tools v2.0
+          </Typography>
+        </Box>
+      </Drawer>
+
+      <Box component="main" sx={{ flexGrow: 1, height: '100vh', display: 'flex', flexDirection: 'column' }}>
         <Routes>
-          <Route path="/" element={<div style={{ padding: '2rem' }}><Dashboard /></div>} />
-          <Route path="/chat" element={<ChatUI />} />
-          <Route path="/knowledge" element={<div style={{ padding: '2rem' }}><KnowledgeBase /></div>} />
-          <Route path="/waha" element={<div style={{ padding: '2rem' }}><WhatsAppConfig /></div>} />
-          <Route path="/settings" element={<div style={{ padding: '2rem' }}><Settings /></div>} />
+          <Route path="/" element={<ChatUI />} />
+          <Route path="/knowledge" element={<Box sx={{ p: 4, flex: 1, overflowY: 'auto' }}><KnowledgeBase /></Box>} />
+          <Route path="/waha" element={<Box sx={{ p: 4, flex: 1, overflowY: 'auto' }}><WhatsAppConfig /></Box>} />
+          <Route path="/settings" element={<Box sx={{ p: 4, flex: 1, overflowY: 'auto' }}><Settings /></Box>} />
         </Routes>
-      </AppShell.Main>
-    </AppShell>
+      </Box>
+    </Box>
   );
 }

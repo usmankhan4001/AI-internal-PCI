@@ -1,27 +1,26 @@
 import { useEffect, useState } from 'react';
-import { Title, Paper, Textarea, Button, Stack, Notification, Loader } from '@mantine/core';
-import { IconCheck, IconX } from '@tabler/icons-react';
+import { Box, Typography, Button, Paper, TextField, Alert, CircularProgress } from '@mui/material';
 import axios from 'axios';
 
 const API_BASE = '/api';
 
 export default function Settings() {
-  const [persona, setPersona] = useState('');
+  const [systemPrompt, setSystemPrompt] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [notification, setNotification] = useState<{ type: 'success'|'error', message: string } | null>(null);
 
   useEffect(() => {
-    fetchPersona();
+    fetchSettings();
   }, []);
 
-  const fetchPersona = async () => {
+  const fetchSettings = async () => {
     try {
-      const res = await axios.get(`${API_BASE}/settings/persona`);
-      setPersona(res.data.persona);
+      const res = await axios.get(`${API_BASE}/settings`);
+      setSystemPrompt(res.data.data.systemPrompt || '');
     } catch (err) {
       console.error(err);
-      setNotification({ type: 'error', message: 'Failed to fetch persona from server.' });
+      setNotification({ type: 'error', message: 'Failed to fetch settings from server.' });
     } finally {
       setLoading(false);
     }
@@ -30,54 +29,57 @@ export default function Settings() {
   const handleSave = async () => {
     setSaving(true);
     try {
-      await axios.put(`${API_BASE}/settings/persona`, { persona });
-      setNotification({ type: 'success', message: 'Persona updated successfully! The bot will now use this personality.' });
+      await axios.put(`${API_BASE}/settings`, { systemPrompt });
+      setNotification({ type: 'success', message: 'Persona saved successfully!' });
       setTimeout(() => setNotification(null), 4000);
     } catch (err) {
       console.error(err);
-      setNotification({ type: 'error', message: 'Failed to update persona.' });
+      setNotification({ type: 'error', message: 'Failed to update persona settings.' });
     } finally {
       setSaving(false);
     }
   };
 
-  if (loading) return <Loader color="blue" type="dots" />;
+  if (loading) return <CircularProgress />;
 
   return (
-    <div>
-      <Title order={2} mb="lg">Bot Settings</Title>
+    <Box sx={{ maxWidth: 800 }}>
+      <Typography variant="h4" gutterBottom color="white">AI Persona</Typography>
 
       {notification && (
-        <Notification 
-          icon={notification.type === 'success' ? <IconCheck size="1.1rem" /> : <IconX size="1.1rem" />} 
-          color={notification.type === 'success' ? 'teal' : 'red'} 
-          title={notification.type === 'success' ? 'Success' : 'Error'}
-          mb="md"
-          onClose={() => setNotification(null)}
-        >
+        <Alert severity={notification.type} sx={{ mb: 3 }}>
           {notification.message}
-        </Notification>
+        </Alert>
       )}
 
-      <Paper withBorder p="md" radius="md">
-        <Title order={4} mb="xs">System Persona</Title>
-        <p style={{ color: 'var(--mantine-color-dimmed)', fontSize: '14px', marginBottom: '20px' }}>
-          This is the core "System Prompt" that dictates exactly how the AI behaves, speaks, and follows rules.
-          Changing this will instantly change the bot's personality for all future messages.
-        </p>
-        <Stack>
-          <Textarea
-            value={persona}
-            onChange={(e) => setPersona(e.currentTarget.value)}
-            minRows={15}
-            autosize
-            styles={{ input: { fontFamily: 'monospace', fontSize: '13px' } }}
+      <Paper elevation={0} sx={{ p: 4, border: '1px solid #424242' }}>
+        <Typography variant="h6" gutterBottom>System Prompt</Typography>
+        <Typography variant="body2" color="text.secondary" gutterBottom sx={{ mb: 3 }}>
+          Define how the AI should behave, its tone, and strict rules it must follow when communicating with the team or clients.
+        </Typography>
+        
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+          <TextField
+            fullWidth
+            multiline
+            rows={12}
+            label="Base Persona Instructions"
+            value={systemPrompt}
+            onChange={(e) => setSystemPrompt(e.target.value)}
+            slotProps={{ inputLabel: { shrink: true } }}
+            placeholder="You are a helpful assistant..."
           />
-          <Button onClick={handleSave} loading={saving} color="blue">
-            Save Persona
-          </Button>
-        </Stack>
+          <Box>
+            <Button 
+              variant="contained" 
+              onClick={handleSave} 
+              disabled={saving}
+            >
+              {saving ? 'Saving...' : 'Save Persona'}
+            </Button>
+          </Box>
+        </Box>
       </Paper>
-    </div>
+    </Box>
   );
 }

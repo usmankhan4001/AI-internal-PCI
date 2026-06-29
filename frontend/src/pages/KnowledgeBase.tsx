@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Title, Paper, Table, Button, Group, Text, ActionIcon, Loader, Modal, Textarea, TextInput } from '@mantine/core';
-import { useDisclosure } from '@mantine/hooks';
-import { IconTrash, IconPlus } from '@tabler/icons-react';
+import { Box, Typography, Button, Paper, TextField, List, ListItem, ListItemText, IconButton, CircularProgress, Alert } from '@mui/material';
+import DeleteIcon from '@mui/icons-material/Delete';
+import AddIcon from '@mui/icons-material/Add';
+import DescriptionIcon from '@mui/icons-material/Description';
 import axios from 'axios';
 
 const API_BASE = '/api';
@@ -11,18 +12,15 @@ interface Document {
   filename: string;
   type: string;
   createdAt: string;
-  _count?: { chunks: number };
 }
 
 export default function KnowledgeBase() {
   const [documents, setDocuments] = useState<Document[]>([]);
   const [loading, setLoading] = useState(true);
-  const [opened, { open, close }] = useDisclosure(false);
-  
-  // Upload State
-  const [sourceName, setSourceName] = useState('');
   const [jsonInput, setJsonInput] = useState('');
-  const [uploading, setUploading] = useState(false);
+  const [sourceName, setSourceName] = useState('');
+  const [ingesting, setIngesting] = useState(false);
+  const [notification, setNotification] = useState<{ type: 'success'|'error', message: string } | null>(null);
 
   useEffect(() => {
     fetchDocuments();
@@ -33,110 +31,124 @@ export default function KnowledgeBase() {
       const res = await axios.get(`${API_BASE}/knowledge`);
       setDocuments(res.data.data);
     } catch (err) {
-      console.error('Failed to fetch knowledge docs', err);
+      console.error(err);
+      setNotification({ type: 'error', message: 'Failed to fetch knowledge base documents.' });
     } finally {
       setLoading(false);
     }
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this knowledge source?')) return;
     try {
       await axios.delete(`${API_BASE}/knowledge/${id}`);
-      fetchDocuments();
+      setDocuments(documents.filter(d => d.id !== id));
+      setNotification({ type: 'success', message: 'Document deleted successfully.' });
+      setTimeout(() => setNotification(null), 4000);
     } catch (err) {
-      console.error('Failed to delete', err);
+      console.error(err);
+      setNotification({ type: 'error', message: 'Failed to delete document. Ensure no dependent chunks exist or check logs.' });
     }
   };
 
-  const handleUpload = async () => {
+  const handleIngest = async () => {
     try {
-      setUploading(true);
+      setIngesting(true);
       const parsedData = JSON.parse(jsonInput);
       await axios.post(`${API_BASE}/knowledge/ingest-json`, {
-        sourceName,
-        data: parsedData
+        sourceName: sourceName || 'Manual Upload',
+        data: Array.isArray(parsedData) ? parsedData : [parsedData]
       });
-      close();
-      setSourceName('');
       setJsonInput('');
+      setSourceName('');
       fetchDocuments();
+      setNotification({ type: 'success', message: 'Data ingested successfully!' });
+      setTimeout(() => setNotification(null), 4000);
     } catch (err: any) {
-      alert('Upload failed: ' + (err.message || 'Invalid JSON'));
+      setNotification({ type: 'error', message: `Failed to ingest data: ${err.message}` });
     } finally {
-      setUploading(false);
+      setIngesting(false);
     }
   };
 
-  if (loading) return <Loader color="blue" type="dots" />;
-
-  const rows = documents.map((element) => (
-    <Table.Tr key={element.id}>
-      <Table.Td>{element.filename}</Table.Td>
-      <Table.Td>{element.type}</Table.Td>
-      <Table.Td>{element._count?.chunks || 0}</Table.Td>
-      <Table.Td>{new Date(element.createdAt).toLocaleDateString()}</Table.Td>
-      <Table.Td>
-        <ActionIcon color="red" variant="subtle" onClick={() => handleDelete(element.id)}>
-          <IconTrash size="1.2rem" />
-        </ActionIcon>
-      </Table.Td>
-    </Table.Tr>
-  ));
+  if (loading) return <CircularProgress />;
 
   return (
-    <div>
-      <Group justify="space-between" mb="lg">
-        <Title order={2}>Knowledge Base</Title>
-        <Button leftSection={<IconPlus size="1rem" />} onClick={open}>
-          Add Knowledge
-        </Button>
-      </Group>
+    <Box>
+      <Typography variant="h4" gutterBottom color="white">Knowledge Base</Typography>
 
-      <Paper withBorder radius="md">
-        <Table striped highlightOnHover verticalSpacing="sm" horizontalSpacing="md">
-          <Table.Thead>
-            <Table.Tr>
-              <Table.Th>Source Name</Table.Th>
-              <Table.Th>Type</Table.Th>
-              <Table.Th>Items/Chunks</Table.Th>
-              <Table.Th>Date Added</Table.Th>
-              <Table.Th>Actions</Table.Th>
-            </Table.Tr>
-          </Table.Thead>
-          <Table.Tbody>{rows.length > 0 ? rows : (
-            <Table.Tr>
-              <Table.Td colSpan={5}>
-                <Text c="dimmed" ta="center">No knowledge documents found.</Text>
-              </Table.Td>
-            </Table.Tr>
-          )}</Table.Tbody>
-        </Table>
-      </Paper>
+      {notification && (
+        <Alert severity={notification.type} sx={{ mb: 3 }}>
+          {notification.message}
+        </Alert>
+      )}
 
-      <Modal opened={opened} onClose={close} title="Ingest New Knowledge" size="lg">
-        <TextInput
-          label="Source Name"
-          placeholder="e.g. River Hills FAQs"
-          required
-          value={sourceName}
-          onChange={(e) => setSourceName(e.currentTarget.value)}
-          mb="md"
-        />
-        <Textarea
-          label="Structured JSON Array"
-          placeholder={'[\n  { "category": "FAQ", "topic": "Amenities", "content": "Gym and Pool" }\n]'}
-          required
-          minRows={10}
-          value={jsonInput}
-          onChange={(e) => setJsonInput(e.currentTarget.value)}
-          mb="md"
-          styles={{ input: { fontFamily: 'monospace', fontSize: '12px' } }}
-        />
-        <Button fullWidth onClick={handleUpload} loading={uploading} disabled={!sourceName || !jsonInput}>
-          Ingest Knowledge
-        </Button>
-      </Modal>
-    </div>
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 4 }}>
+        
+        {/* Existing Documents */}
+        <Paper elevation={0} sx={{ p: 3, border: '1px solid #424242' }}>
+          <Typography variant="h6" gutterBottom>Ingested Documents</Typography>
+          <List>
+            {documents.length === 0 && (
+              <Typography variant="body2" color="text.secondary">No documents in the knowledge base.</Typography>
+            )}
+            {documents.map(doc => (
+              <ListItem 
+                key={doc.id}
+                secondaryAction={
+                  <IconButton edge="end" aria-label="delete" onClick={() => handleDelete(doc.id)} color="error">
+                    <DeleteIcon />
+                  </IconButton>
+                }
+                sx={{ border: '1px solid #424242', borderRadius: 1, mb: 1 }}
+              >
+                <DescriptionIcon sx={{ mr: 2, color: 'text.secondary' }} />
+                <ListItemText 
+                  primary={doc.filename} 
+                  secondary={`Type: ${doc.type} • Added: ${new Date(doc.createdAt).toLocaleDateString()}`} 
+                />
+              </ListItem>
+            ))}
+          </List>
+        </Paper>
+
+        {/* Ingest New Data */}
+        <Paper elevation={0} sx={{ p: 3, border: '1px solid #424242' }}>
+          <Typography variant="h6" gutterBottom>Ingest New Data</Typography>
+          <Typography variant="body2" color="text.secondary" gutterBottom>
+            Paste a JSON array of objects here. The AI will chunk and embed this data for RAG.
+          </Typography>
+          
+          <TextField
+            fullWidth
+            label="Source Name (e.g., HR Policy 2026)"
+            value={sourceName}
+            onChange={(e) => setSourceName(e.target.value)}
+            margin="normal"
+            size="small"
+          />
+          <TextField
+            fullWidth
+            multiline
+            rows={8}
+            label="JSON Data"
+            value={jsonInput}
+            onChange={(e) => setJsonInput(e.target.value)}
+            placeholder='[{"question": "What is the refund policy?", "answer": "..."}]'
+            margin="normal"
+            sx={{ fontFamily: 'monospace' }}
+          />
+          <Button 
+            variant="contained" 
+            startIcon={<AddIcon />} 
+            onClick={handleIngest} 
+            disabled={!jsonInput || ingesting}
+            sx={{ mt: 2 }}
+          >
+            {ingesting ? 'Processing...' : 'Ingest JSON'}
+          </Button>
+        </Paper>
+
+      </Box>
+    </Box>
   );
 }

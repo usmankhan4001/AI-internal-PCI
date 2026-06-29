@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Title, Paper, TextInput, Button, Stack, Notification, Loader } from '@mantine/core';
-import { IconCheck, IconX } from '@tabler/icons-react';
+import { Box, Typography, Button, Paper, TextField, Alert, CircularProgress } from '@mui/material';
 import axios from 'axios';
 
 const API_BASE = '/api';
@@ -46,47 +45,52 @@ export default function WhatsAppConfig() {
     }
   };
 
-  if (loading) return <Loader color="blue" type="dots" />;
+  if (loading) return <CircularProgress />;
 
   return (
-    <div>
-      <Title order={2} mb="lg">WhatsApp & Integrations Config</Title>
+    <Box sx={{ maxWidth: 800 }}>
+      <Typography variant="h4" gutterBottom color="white">WhatsApp & Integrations Config</Typography>
 
       {notification && (
-        <Notification 
-          icon={notification.type === 'success' ? <IconCheck size="1.1rem" /> : <IconX size="1.1rem" />} 
-          color={notification.type === 'success' ? 'teal' : 'red'} 
-          title={notification.type === 'success' ? 'Success' : 'Error'}
-          mb="md"
-          onClose={() => setNotification(null)}
-        >
+        <Alert severity={notification.type} sx={{ mb: 3 }}>
           {notification.message}
-        </Notification>
+        </Alert>
       )}
 
-      <Paper withBorder p="md" radius="md">
-        <Title order={4} mb="xs">API Connections</Title>
-        <p style={{ color: 'var(--mantine-color-dimmed)', fontSize: '14px', marginBottom: '20px' }}>
+      <Paper elevation={0} sx={{ p: 4, border: '1px solid #424242' }}>
+        <Typography variant="h6" gutterBottom>API Connections</Typography>
+        <Typography variant="body2" color="text.secondary" gutterBottom sx={{ mb: 3 }}>
           Configure the Base URLs for the WAHA (WhatsApp HTTP API) engine and Bitrix CRM.
-        </p>
-        <Stack>
-          <TextInput
+        </Typography>
+        
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+          <TextField
+            fullWidth
             label="WAHA API Base URL"
             placeholder="http://localhost:3000"
             value={wahaUrl}
-            onChange={(e) => setWahaUrl(e.currentTarget.value)}
+            onChange={(e) => setWahaUrl(e.target.value)}
+            slotProps={{ inputLabel: { shrink: true } }}
           />
-          <TextInput
+          <TextField
+            fullWidth
             label="Bitrix Webhook URL"
             placeholder="https://your-domain.bitrix24.com/rest/1/xxxx/"
             value={webhookUrl}
-            onChange={(e) => setWebhookUrl(e.currentTarget.value)}
+            onChange={(e) => setWebhookUrl(e.target.value)}
+            slotProps={{ inputLabel: { shrink: true } }}
           />
-          <Button onClick={handleSave} loading={saving} color="blue">
-            Save Configuration
-          </Button>
-        </Stack>
+          <Box>
+            <Button 
+              variant="contained" 
+              onClick={handleSave} 
+              disabled={saving}
+            >
+              {saving ? 'Saving...' : 'Save Configuration'}
+            </Button>
+          </Box>
+        </Box>
       </Paper>
-    </div>
+    </Box>
   );
 }
