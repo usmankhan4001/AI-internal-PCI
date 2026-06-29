@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
-import { Title, Paper, TextInput, ActionIcon, Stack, Text, ScrollArea, Loader, Group, Button } from '@mantine/core';
-import { IconSend, IconDownload } from '@tabler/icons-react';
+import { TextInput, ActionIcon, Text, ScrollArea, Loader, Group, Button, Avatar } from '@mantine/core';
+import { IconSend, IconDownload, IconRobot, IconUser } from '@tabler/icons-react';
 import axios from 'axios';
 
 const API_BASE = '/api';
@@ -16,7 +16,7 @@ interface Message {
 
 export default function ChatUI() {
   const [messages, setMessages] = useState<Message[]>([
-    { role: 'bot', text: 'Hello! I am your internal PCI AI Assistant. How can I help you today?' }
+    { role: 'bot', text: 'Hello! I am the internal PCI Assistant. Ask me to search inventory or generate payment plans.' }
   ]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -55,62 +55,102 @@ export default function ChatUI() {
   };
 
   return (
-    <Stack h="calc(100vh - 120px)">
-      <Title order={2}>Team Chat</Title>
-
-      <Paper withBorder p="md" radius="md" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        <ScrollArea viewportRef={viewport} style={{ flex: 1 }} pr="sm">
-          <Stack gap="md">
-            {messages.map((msg, idx) => (
-              <div key={idx} style={{ alignSelf: msg.role === 'user' ? 'flex-end' : 'flex-start', maxWidth: '80%' }}>
-                <Paper 
-                  p="sm" 
-                  radius="md" 
-                  bg={msg.role === 'user' ? 'blue.6' : 'dark.6'}
-                  c={msg.role === 'user' ? 'white' : 'gray.3'}
-                >
-                  <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>{msg.text}</Text>
-                  
-                  {msg.file && (
-                    <Group mt="xs">
-                      <Button 
-                        size="xs" 
-                        variant="light" 
-                        color="gray"
-                        leftSection={<IconDownload size="1rem" />}
-                        onClick={() => downloadBase64File(msg.file!.base64, msg.file!.filename)}
-                      >
-                        Download {msg.file.filename}
-                      </Button>
-                    </Group>
-                  )}
-                </Paper>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', position: 'relative' }}>
+      
+      {/* Messages Area */}
+      <ScrollArea viewportRef={viewport} style={{ flex: 1, paddingBottom: '100px' }}>
+        <div style={{ maxWidth: '800px', margin: '0 auto', padding: '2rem 1rem' }}>
+          {messages.map((msg, idx) => (
+            <Group key={idx} align="flex-start" wrap="nowrap" mb="xl">
+              <Avatar 
+                color={msg.role === 'user' ? 'blue' : 'dark'} 
+                radius="xl"
+                size="md"
+              >
+                {msg.role === 'user' ? <IconUser size="1.2rem"/> : <IconRobot size="1.2rem"/>}
+              </Avatar>
+              <div style={{ flex: 1, paddingTop: '4px' }}>
+                <Text size="sm" fw={600} mb="xs" c="gray.4">
+                  {msg.role === 'user' ? 'You' : 'PCI Assistant'}
+                </Text>
+                <Text size="md" style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6 }} c="gray.1">
+                  {msg.text}
+                </Text>
+                
+                {msg.file && (
+                  <Button 
+                    mt="md"
+                    size="sm" 
+                    variant="light" 
+                    color="gray"
+                    leftSection={<IconDownload size="1rem" />}
+                    onClick={() => downloadBase64File(msg.file!.base64, msg.file!.filename)}
+                  >
+                    Download {msg.file.filename}
+                  </Button>
+                )}
               </div>
-            ))}
-            {loading && (
-              <div style={{ alignSelf: 'flex-start' }}>
-                <Loader color="blue" type="dots" />
+            </Group>
+          ))}
+          {loading && (
+            <Group align="flex-start" wrap="nowrap" mb="xl">
+              <Avatar color="dark" radius="xl" size="md">
+                <IconRobot size="1.2rem"/>
+              </Avatar>
+              <div style={{ flex: 1, paddingTop: '10px' }}>
+                <Loader color="gray" type="dots" />
               </div>
-            )}
-          </Stack>
-        </ScrollArea>
+            </Group>
+          )}
+        </div>
+      </ScrollArea>
 
-        <div style={{ paddingTop: '16px', borderTop: '1px solid var(--mantine-color-default-border)' }}>
+      {/* Input Area */}
+      <div style={{ 
+        position: 'absolute', 
+        bottom: 0, 
+        left: 0, 
+        right: 0, 
+        padding: '24px',
+        background: 'linear-gradient(180deg, transparent 0%, #212121 50%)'
+      }}>
+        <div style={{ maxWidth: '800px', margin: '0 auto' }}>
           <form onSubmit={(e) => { e.preventDefault(); handleSend(); }}>
             <TextInput
-              placeholder="Ask about inventory, knowledge base, or generate a payment plan..."
+              placeholder="Message PCI Assistant..."
               value={input}
               onChange={(e) => setInput(e.currentTarget.value)}
               disabled={loading}
+              size="lg"
+              radius="xl"
+              styles={{
+                input: {
+                  backgroundColor: '#2C2E33',
+                  border: 'none',
+                  paddingRight: '50px'
+                }
+              }}
               rightSection={
-                <ActionIcon size={32} radius="xl" color="blue" variant="filled" onClick={handleSend} disabled={!input.trim() || loading}>
-                  <IconSend size="1.2rem" stroke={1.5} />
+                <ActionIcon 
+                  size={32} 
+                  radius="xl" 
+                  color={input.trim() ? "white" : "dark.4"} 
+                  variant={input.trim() ? "filled" : "transparent"} 
+                  onClick={handleSend} 
+                  disabled={!input.trim() || loading}
+                  style={{ marginRight: '8px' }}
+                >
+                  <IconSend size="1.2rem" stroke={1.5} color={input.trim() ? "black" : "inherit"}/>
                 </ActionIcon>
               }
             />
           </form>
+          <Text size="xs" ta="center" c="dimmed" mt="sm">
+            AI can make mistakes. Verify critical inventory with Bitrix CRM.
+          </Text>
         </div>
-      </Paper>
-    </Stack>
+      </div>
+
+    </div>
   );
 }
