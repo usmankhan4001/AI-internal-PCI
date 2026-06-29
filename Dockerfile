@@ -28,4 +28,4 @@ RUN npm run build
 EXPOSE 3000
 
 # Push DB schema and start the app
-CMD npx prisma db push && npm run start:prod
+CMD npx prisma db push --accept-data-loss && npm run start:prod
