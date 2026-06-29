@@ -28,6 +28,13 @@ services:
     depends_on:
       - postgres
     restart: always
+    networks:
+      - default
+      - dokploy-network
 
 volumes:
   pgdata:
+
+networks:
+  dokploy-network:
+    external: true
