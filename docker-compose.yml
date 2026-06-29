@@ -18,7 +18,7 @@ services:
     build: .
     container_name: pci_bot_app
     ports:
-      - "3000:3000"
+      - "3001:3000"
     environment:
       - DATABASE_URL=postgresql://root:rootpassword@postgres:5432/pcibot?schema=public
       - GEMINI_API_KEY=${GEMINI_API_KEY}
