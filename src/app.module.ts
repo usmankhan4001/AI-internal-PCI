@@ -11,9 +11,16 @@ import { WhatsappModule } from './whatsapp/whatsapp.module';
 import { PdfModule } from './pdf/pdf.module';
 import { SettingsModule } from './settings/settings.module';
 
+import { ServeStaticModule } from '@nestjs/serve-static';
+import { join } from 'path';
+
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    ServeStaticModule.forRoot({
+      rootPath: join(__dirname, '..', 'frontend', 'dist'),
+      exclude: ['/api/(.*)'],
+    }),
     PrismaModule, 
     KnowledgeModule, BitrixModule, AiModule, SessionModule, WhatsappModule, PdfModule, SettingsModule
   ],

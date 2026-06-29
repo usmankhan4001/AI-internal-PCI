@@ -3,7 +3,7 @@ import { Title, Paper, Textarea, Button, Stack, Notification, Loader } from '@ma
 import { IconCheck, IconX } from '@tabler/icons-react';
 import axios from 'axios';
 
-const API_BASE = 'http://localhost:3000/api';
+const API_BASE = '/api';
 
 export default function Settings() {
   const [persona, setPersona] = useState('');

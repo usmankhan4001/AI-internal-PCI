@@ -18,6 +18,9 @@ RUN npx prisma generate
 # Copy the rest of the application
 COPY . .
 
+# Build the frontend
+RUN cd frontend && npm install && npm run build
+
 # Build the NestJS application
 RUN npm run build
 
