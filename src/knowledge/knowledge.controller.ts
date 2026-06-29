@@ -23,6 +23,8 @@ export class KnowledgeController {
     } catch (error: any) {
       throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);
     }
+  }
+
   @Get()
   async getKnowledge() {
     // Assuming knowledgeService has a method to get all chunks/docs
