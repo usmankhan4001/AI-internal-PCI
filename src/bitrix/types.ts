@@ -13,8 +13,12 @@ export const PROP = {
   NET_AREA: 149, // numeric string
 } as const;
 
-/** value "155" on PROPERTY_99 means the unit is available. */
+/** Availability status values on PROPERTY_99. */
 export const AVAILABLE_VALUE = "155";
+export const HOLD_VALUE = "156";
+export const SOLD_VALUE = "157";
+
+export type UnitStatus = 'AVAILABLE' | 'HOLD' | 'SOLD' | 'UNKNOWN';
 
 /** A Bitrix enum option (project / type / floor / category). */
 export interface BitrixEnum {
@@ -63,6 +67,7 @@ export interface UnitFilter {
   propertyType?: string;
   propertyCategory?: string;
   propertyFloor?: string;
+  status?: UnitStatus;
 }
 
 /** Normalized, bot-friendly view of a unit (after resolving enums + price). */
@@ -83,4 +88,6 @@ export interface NormalizedUnit {
   /** baseRate * grossArea (PCI default pricing). */
   totalPrice?: number;
   available?: boolean;
+  status: UnitStatus;
+  statusRaw?: string;
 }

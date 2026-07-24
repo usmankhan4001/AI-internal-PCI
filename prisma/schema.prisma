@@ -10,11 +10,12 @@ datasource db {
   extensions = [vector]
 }
 
+// ─── WhatsApp Leads (external customers) ───
 model User {
   id        String    @id @default(cuid())
   phone     String    @unique
   name      String
-  role      String    @default("LEAD") // Changed default to LEAD for customers
+  role      String    @default("LEAD")
   language  String    @default("english")
   profile   Json?     @default("{}")
   createdAt DateTime  @default(now())
@@ -41,24 +42,115 @@ model Message {
   createdAt DateTime @default(now())
 }
 
+// ─── Internal Team (admin dashboard users) ───
+model AdminUser {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  department   String   @default("general") // sales, marketing, hr, engineering, design, admin, general
+  role         String   @default("member")  // admin, member
+  createdAt    DateTime @default(now())
+  chatSessions TeamChatSession[]
+}
+
+model TeamChatSession {
+  id        String   @id @default(cuid())
+  userId    String
+  user      AdminUser @relation(fields: [userId], references: [id])
+  title     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  messages  TeamChatMessage[]
+}
+
+model TeamChatMessage {
+  id        String   @id @default(cuid())
+  sessionId String
+  session   TeamChatSession @relation(fields: [sessionId], references: [id])
+  role      String   // "user" or "assistant"
+  content   String
+  createdAt DateTime @default(now())
+}
+
+// ─── Knowledge Base ───
+enum AuthorityLevel {
+  OFFICIAL_POLICY
+  VERIFIED_MARKETING
+  INTERNAL_DRAFT
+  SUPERSEDED
+  DEPRECATED
+}
+
+enum FileSource {
+  CHAT_UPLOAD
+  GOOGLE_DRIVE
+  BITRIX_DRIVE
+  WHATSAPP_INBOUND
+  SYSTEM_GENERATED
+}
+
 model Document {
-  id        String          @id @default(cuid())
-  filename  String
-  type      String          // e.g., "brochure", "policy"
-  metadata  Json?
-  createdAt DateTime        @default(now())
-  chunks    DocumentChunk[]
+  id             String          @id @default(cuid())
+  filename       String
+  fileHash       String?         // SHA256 hash
+  type           String          // "pdf", "docx", "xlsx", "ppt", "json", "md", "image"
+  mimeType       String?
+  fileSize       Int?
+  storageUrl     String?         // Permanent S3/R2/Local URL
+  cdnUrl         String?         // Public CDN / WhatsApp URL
+  
+  department     String          @default("general") // sales, marketing, hr, engineering, design, projects
+  category       String?         // "policy", "brochure", "layout", "payment-plan", "spec", etc.
+  project        String?         // "River Courtyard", "Grand Orchard", etc.
+  
+  authorityLevel AuthorityLevel  @default(OFFICIAL_POLICY)
+  version        Int             @default(1)
+  isLatest       Boolean         @default(true)
+  parentDocId    String?
+  parentDoc      Document?       @relation("DocumentVersions", fields: [parentDocId], references: [id])
+  childDocs      Document[]      @relation("DocumentVersions")
+
+  sourceType     FileSource      @default(CHAT_UPLOAD)
+  driveFileId    String?         // Google Drive file ID (if synced)
+  bitrixLeadId   String?
+  bitrixDealId   String?
+  
+  metadata       Json?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt @default(now())
+  
+  chunks         DocumentChunk[]
+  shareLogs      ShareLog[]
+
+  @@index([department, category, project])
+  @@index([authorityLevel, isLatest])
 }
 
 model DocumentChunk {
   id         String   @id @default(cuid())
   documentId String
-  document   Document @relation(fields: [documentId], references: [id])
-  content    String
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  content    String   @db.Text
+  chunkIndex Int      @default(0)
   embedding  Unsupported("vector(768)") // Google Gemini embeddings are 768 dimensions
   createdAt  DateTime @default(now())
+
+  @@index([documentId])
 }
 
+model ShareLog {
+  id          String   @id @default(cuid())
+  documentId  String
+  document    Document @relation(fields: [documentId], references: [id])
+  channel     String   // WHATSAPP, BITRIX_CRM, GOOGLE_DRIVE, DIRECT_LINK
+  recipient   String   // WhatsApp Phone Number or Bitrix Deal/Lead ID
+  status      String   // SENT, DELIVERED, FAILED
+  metadata    Json?    @default("{}")
+  createdAt   DateTime @default(now())
+}
+
+// ─── Global Settings ───
 model Setting {
   id               String   @id @default("global")
   persona          String   @db.Text
@@ -66,4 +158,3 @@ model Setting {
   bitrixWebhookUrl String?
   updatedAt        DateTime @updatedAt
 }
-

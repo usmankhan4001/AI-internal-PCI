@@ -14,6 +14,9 @@ import { SettingsModule } from './settings/settings.module';
 import { ServeStaticModule } from '@nestjs/serve-static';
 import { join } from 'path';
 import { ChatModule } from './chat/chat.module';
+import { AuthModule } from './auth/auth.module';
+import { DriveModule } from './drive/drive.module';
+import { AdminModule } from './admin/admin.module';
 
 @Module({
   imports: [
@@ -23,7 +26,9 @@ import { ChatModule } from './chat/chat.module';
       exclude: ['/api/{*splat}', '/webhook/{*splat}'],
     }),
     PrismaModule, 
-    KnowledgeModule, BitrixModule, AiModule, SessionModule, WhatsappModule, PdfModule, SettingsModule, ChatModule
+    AuthModule,
+    KnowledgeModule, BitrixModule, AiModule, SessionModule, WhatsappModule, PdfModule, SettingsModule, ChatModule,
+    DriveModule, AdminModule
   ],
   controllers: [AppController],
   providers: [AppService],

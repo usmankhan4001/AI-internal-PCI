@@ -2,12 +2,15 @@ import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   AVAILABLE_VALUE,
+  HOLD_VALUE,
+  SOLD_VALUE,
   PROP,
   BitrixEnum,
   CatalogProduct,
   NormalizedUnit,
   ProductDetail,
   UnitFilter,
+  UnitStatus,
 } from './types';
 
 const num = (s?: string) => Number(String(s ?? '').replace(/,/g, '')) || 0;
@@ -179,6 +182,12 @@ export class BitrixService implements OnApplicationBootstrap {
     const grossArea = num(p[`PROPERTY_${PROP.GROSS_AREA}`]?.value);
     const netArea = num(p[`PROPERTY_${PROP.NET_AREA}`]?.value);
 
+    const rawAvailability = String(p[`PROPERTY_${PROP.AVAILABILITY}`]?.valueId || p[`PROPERTY_${PROP.AVAILABILITY}`]?.value || '');
+    let status: UnitStatus = 'UNKNOWN';
+    if (rawAvailability === AVAILABLE_VALUE) status = 'AVAILABLE';
+    else if (rawAvailability === HOLD_VALUE) status = 'HOLD';
+    else if (rawAvailability === SOLD_VALUE) status = 'SOLD';
+
     const useNetArea =
       projectId === '673' && ['299', '301', '249'].includes(floorId ?? '');
     const areaForPrice = useNetArea ? netArea : grossArea;
@@ -198,7 +207,9 @@ export class BitrixService implements OnApplicationBootstrap {
       grossArea,
       netArea,
       totalPrice: baseRate * areaForPrice,
-      available: (p[`PROPERTY_${PROP.AVAILABILITY}`]?.valueId || p[`PROPERTY_${PROP.AVAILABILITY}`]?.value) === AVAILABLE_VALUE,
+      available: status === 'AVAILABLE',
+      status,
+      statusRaw: rawAvailability,
     };
   }
 
@@ -208,6 +219,9 @@ export class BitrixService implements OnApplicationBootstrap {
     type?: string;
     floor?: string;
     category?: string;
+    status?: UnitStatus;
+    unitName?: string;
+    includeUnavailable?: boolean;
   }): NormalizedUnit[] {
     if (!this._cacheReady) return [];
 
@@ -227,8 +241,17 @@ export class BitrixService implements OnApplicationBootstrap {
     if (filter.category) {
       pool = pool.filter(u => fuzzy(u.categoryName, filter.category!));
     }
+    if (filter.unitName) {
+      pool = pool.filter(u => u.name.toLowerCase().includes(filter.unitName!.toLowerCase()));
+    }
+    if (filter.status) {
+      pool = pool.filter(u => u.status === filter.status);
+    } else if (!filter.includeUnavailable) {
+      // Default to available units unless explicitly asked for all/sold/hold
+      pool = pool.filter(u => u.available);
+    }
 
-    return pool.filter(u => u.available);
+    return pool;
   }
 
   // ── Cache warmup ──────────────────────────────────────────────

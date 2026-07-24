@@ -1,5 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Box, Typography, Button, Paper, TextField, List, ListItem, ListItemText, IconButton, CircularProgress, Alert } from '@mui/material';
+import { 
+  Box, Typography, Button, Paper, TextField, List, ListItem, 
+  ListItemText, IconButton, CircularProgress, Alert,
+  FormControl, InputLabel, Select, MenuItem
+} from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
 import DescriptionIcon from '@mui/icons-material/Description';
@@ -11,25 +15,45 @@ interface Document {
   id: string;
   filename: string;
   type: string;
+  department: string;
   createdAt: string;
 }
+
+const DEPARTMENTS = [
+  'Sales', 
+  'Marketing', 
+  'HR', 
+  'Engineering', 
+  'Projects', 
+  'General'
+];
 
 export default function KnowledgeBase() {
   const [documents, setDocuments] = useState<Document[]>([]);
   const [loading, setLoading] = useState(true);
-  const [jsonInput, setJsonInput] = useState('');
-  const [sourceName, setSourceName] = useState('');
-  const [ingesting, setIngesting] = useState(false);
+  
+  // Form State
+  const [file, setFile] = useState<File | null>(null);
+  const [department, setDepartment] = useState('');
+  const [category, setCategory] = useState('');
+  const [project, setProject] = useState('');
+  
+  const [uploading, setUploading] = useState(false);
   const [notification, setNotification] = useState<{ type: 'success'|'error', message: string } | null>(null);
 
   useEffect(() => {
     fetchDocuments();
   }, []);
 
+  const getHeaders = () => {
+    const token = localStorage.getItem('pci_token');
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  };
+
   const fetchDocuments = async () => {
     try {
-      const res = await axios.get(`${API_BASE}/knowledge`);
-      setDocuments(res.data.data);
+      const res = await axios.get(`${API_BASE}/knowledge`, { headers: getHeaders() });
+      setDocuments(res.data.data || []);
     } catch (err) {
       console.error(err);
       setNotification({ type: 'error', message: 'Failed to fetch knowledge base documents.' });
@@ -40,7 +64,7 @@ export default function KnowledgeBase() {
 
   const handleDelete = async (id: string) => {
     try {
-      await axios.delete(`${API_BASE}/knowledge/${id}`);
+      await axios.delete(`${API_BASE}/knowledge/${id}`, { headers: getHeaders() });
       setDocuments(documents.filter(d => d.id !== id));
       setNotification({ type: 'success', message: 'Document deleted successfully.' });
       setTimeout(() => setNotification(null), 4000);
@@ -50,23 +74,31 @@ export default function KnowledgeBase() {
     }
   };
 
-  const handleIngest = async () => {
+  const handleUpload = async () => {
+    if (!file) return;
     try {
-      setIngesting(true);
-      const parsedData = JSON.parse(jsonInput);
-      await axios.post(`${API_BASE}/knowledge/ingest-json`, {
-        sourceName: sourceName || 'Manual Upload',
-        data: Array.isArray(parsedData) ? parsedData : [parsedData]
+      setUploading(true);
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('department', department);
+      formData.append('category', category);
+      formData.append('project', project);
+
+      await axios.post(`${API_BASE}/knowledge/upload`, formData, {
+        headers: getHeaders()
       });
-      setJsonInput('');
-      setSourceName('');
+      
+      setFile(null);
+      setDepartment('');
+      setCategory('');
+      setProject('');
       fetchDocuments();
-      setNotification({ type: 'success', message: 'Data ingested successfully!' });
+      setNotification({ type: 'success', message: 'File uploaded successfully!' });
       setTimeout(() => setNotification(null), 4000);
     } catch (err: any) {
-      setNotification({ type: 'error', message: `Failed to ingest data: ${err.message}` });
+      setNotification({ type: 'error', message: `Failed to upload file: ${err.response?.data?.message || err.message}` });
     } finally {
-      setIngesting(false);
+      setUploading(false);
     }
   };
 
@@ -85,7 +117,7 @@ export default function KnowledgeBase() {
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 4 }}>
         
         {/* Existing Documents */}
-        <Paper elevation={0} sx={{ p: 3, border: '1px solid #424242' }}>
+        <Paper elevation={0} sx={{ p: 3, border: '1px solid #424242', bgcolor: 'background.paper' }}>
           <Typography variant="h6" gutterBottom>Ingested Documents</Typography>
           <List>
             {documents.length === 0 && (
@@ -104,47 +136,79 @@ export default function KnowledgeBase() {
                 <DescriptionIcon sx={{ mr: 2, color: 'text.secondary' }} />
                 <ListItemText 
                   primary={doc.filename} 
-                  secondary={`Type: ${doc.type} • Added: ${new Date(doc.createdAt).toLocaleDateString()}`} 
+                  secondary={`Dept: ${doc.department || 'N/A'} • Type: ${doc.type} • Added: ${new Date(doc.createdAt).toLocaleDateString()}`} 
                 />
               </ListItem>
             ))}
           </List>
         </Paper>
 
-        {/* Ingest New Data */}
-        <Paper elevation={0} sx={{ p: 3, border: '1px solid #424242' }}>
-          <Typography variant="h6" gutterBottom>Ingest New Data</Typography>
+        {/* Upload New Data */}
+        <Paper elevation={0} sx={{ p: 3, border: '1px solid #424242', bgcolor: 'background.paper' }}>
+          <Typography variant="h6" gutterBottom>Upload New Document</Typography>
           <Typography variant="body2" color="text.secondary" gutterBottom>
-            Paste a JSON array of objects here. The AI will chunk and embed this data for RAG.
+            Upload a PDF, TXT, or CSV file. The AI will chunk and embed this data for RAG.
           </Typography>
           
+          <Button
+            variant="outlined"
+            component="label"
+            fullWidth
+            sx={{ mt: 2, mb: 2, textTransform: 'none' }}
+          >
+            {file ? file.name : "Select File (PDF, TXT, CSV)"}
+            <input
+              type="file"
+              hidden
+              accept=".pdf,.txt,.csv"
+              onChange={(e) => {
+                if (e.target.files && e.target.files.length > 0) {
+                  setFile(e.target.files[0]);
+                }
+              }}
+            />
+          </Button>
+
+          <FormControl fullWidth margin="normal" size="small">
+            <InputLabel id="department-label">Department</InputLabel>
+            <Select
+              labelId="department-label"
+              value={department}
+              label="Department"
+              onChange={(e) => setDepartment(e.target.value)}
+            >
+              {DEPARTMENTS.map(dept => (
+                <MenuItem key={dept} value={dept}>{dept}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
           <TextField
             fullWidth
-            label="Source Name (e.g., HR Policy 2026)"
-            value={sourceName}
-            onChange={(e) => setSourceName(e.target.value)}
+            label="Category"
+            value={category}
+            onChange={(e) => setCategory(e.target.value)}
             margin="normal"
             size="small"
           />
+
           <TextField
             fullWidth
-            multiline
-            rows={8}
-            label="JSON Data"
-            value={jsonInput}
-            onChange={(e) => setJsonInput(e.target.value)}
-            placeholder='[{"question": "What is the refund policy?", "answer": "..."}]'
+            label="Project"
+            value={project}
+            onChange={(e) => setProject(e.target.value)}
             margin="normal"
-            sx={{ fontFamily: 'monospace' }}
+            size="small"
           />
+
           <Button 
             variant="contained" 
             startIcon={<AddIcon />} 
-            onClick={handleIngest} 
-            disabled={!jsonInput || ingesting}
+            onClick={handleUpload} 
+            disabled={!file || !department || uploading}
             sx={{ mt: 2 }}
           >
-            {ingesting ? 'Processing...' : 'Ingest JSON'}
+            {uploading ? 'Uploading...' : 'Upload Document'}
           </Button>
         </Paper>
 

@@ -1,10 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { GoogleGenAI, Type, Schema } from '@google/genai';
-import { BitrixService } from '../bitrix/bitrix.service';
-import { KnowledgeService } from '../knowledge/knowledge.service';
-import { PdfService } from '../pdf/pdf.service';
+import { GoogleGenAI } from '@google/genai';
 import { SettingsService } from '../settings/settings.service';
+import { SkillRegistryService } from '../skills/skill-registry.service';
+import { SkillContext, UserRole, ChannelType } from '../skills/interfaces/skill.interface';
 
 export interface AiResponse {
   text: string;
@@ -20,159 +19,81 @@ export class AiService {
   private readonly ai: GoogleGenAI;
 
   constructor(
-    private configService: ConfigService,
-    private bitrixService: BitrixService,
-    private knowledgeService: KnowledgeService,
-    private pdfService: PdfService,
-    private settingsService: SettingsService,
+    private readonly configService: ConfigService,
+    private readonly settingsService: SettingsService,
+    private readonly registry: SkillRegistryService,
   ) {
     const apiKey = this.configService.get<string>('GEMINI_API_KEY');
     this.ai = new GoogleGenAI({ apiKey });
   }
 
-  private async getSystemPrompt(): Promise<string> {
-    return this.settingsService.getPersona();
-  }
-
-  async processMessage(userMessage: string, pushName: string, history: any[] = []): Promise<AiResponse> {
+  async processMessage(
+    userMessage: string,
+    pushName: string,
+    history: any[] = [],
+    customContext?: Partial<SkillContext>,
+  ): Promise<AiResponse> {
     try {
-      let generatedFile = null;
+      const context: SkillContext = {
+        userId: customContext?.userId || pushName || 'whatsapp_user',
+        userRole: customContext?.userRole || UserRole.PUBLIC_CLIENT,
+        channel: customContext?.channel || ChannelType.WHATSAPP_CLIENT,
+        phoneNumber: customContext?.phoneNumber,
+        department: customContext?.department,
+        metadata: { pushName, ...customContext?.metadata },
+      };
 
-      const systemInstruction = await this.getSystemPrompt();
+      let generatedFile: { buffer: Buffer; filename: string } | null = null;
+
+      // 1. Dynamic System Instructions from Base Persona + Active Skills
+      const basePersona = await this.settingsService.getPersona();
+      const skillPromptSnippets = this.registry.getSystemPromptSnippets(context);
+
+      const systemInstruction = `
+${basePersona}
+
+### ACTIVE SKILL INSTRUCTIONS
+${skillPromptSnippets}
+      `.trim();
+
+      // 2. Resolve Active Gemini Declarations for this user context
+      const declarations = this.registry.getToolDeclarations(context);
 
       const chat = this.ai.chats.create({
         model: 'gemini-2.5-flash',
         config: {
-          systemInstruction: systemInstruction,
+          systemInstruction,
           temperature: 0.2,
-          tools: [
-            {
-              functionDeclarations: [
-                {
-                  name: 'list_projects',
-                  description: 'List all Premier Choice International projects that have inventory. Use to know which projects exist before searching units.',
-                },
-                {
-                  name: 'search_units',
-                  description: 'Search LIVE available units. Filter by project name (or id), property type (e.g. RESIDENTIAL, COMMERCIAL), and/or floor. Returns matching available units.',
-                  parameters: {
-                    type: Type.OBJECT,
-                    properties: {
-                      project: { type: Type.STRING, description: 'Project name or id (optional).' },
-                      type: { type: Type.STRING, description: 'Property type name or id, e.g. RESIDENTIAL or COMMERCIAL (optional).' },
-                      floor: { type: Type.STRING, description: 'Floor name or id (optional).' },
-                    },
-                  } as Schema,
-                },
-                {
-                  name: 'get_unit_details',
-                  description: 'Get full details for one unit by its id (from search_units): project, type, category, floor, area, base rate, and total price.',
-                  parameters: {
-                    type: Type.OBJECT,
-                    properties: {
-                      unitId: { type: Type.STRING, description: 'The unit product id.' },
-                    },
-                    required: ['unitId'],
-                  } as Schema,
-                },
-                {
-                  name: 'get_project_info',
-                  description: 'Answer detailed questions about a project (amenities, specs, layout, location, payment terms, FAQs) using the company knowledge base.',
-                  parameters: {
-                    type: Type.OBJECT,
-                    properties: {
-                      question: { type: Type.STRING, description: 'The customer question.' },
-                    },
-                    required: ['question'],
-                  } as Schema,
-                },
-                {
-                  name: 'generate_and_send_proposal',
-                  description: 'Generates a branded PDF Payment Plan Proposal for a specific unit and sends it to the customer.',
-                  parameters: {
-                    type: Type.OBJECT,
-                    properties: {
-                      unitId: { type: Type.STRING, description: 'The unit product id.' },
-                    },
-                    required: ['unitId'],
-                  } as Schema,
-                }
-              ],
-            },
-          ],
+          tools: declarations.length > 0 ? [{ functionDeclarations: declarations }] : [],
         },
       });
 
       let response = await chat.sendMessage({ message: userMessage });
 
+      // 3. Autonomous Function Execution Loop
       while (response.functionCalls && response.functionCalls.length > 0) {
         const calls = response.functionCalls;
         const toolResponses = [];
 
         for (const call of calls) {
-          this.logger.log(`Executing tool: ${call.name} with args: ${JSON.stringify(call.args)}`);
+          if (!call.name) continue;
+          this.logger.log(`Invoking tool [${call.name}] for user [${pushName}]`);
           let result: any;
 
           try {
-            switch (call.name) {
-              case 'list_projects':
-                const projects = await this.bitrixService.listProjects();
-                result = { projects: projects.map((p) => ({ id: p.id, name: p.value })) };
-                break;
+            const args = call.args ? (call.args as Record<string, any>) : {};
+            result = await this.registry.executeTool(call.name, args, context);
 
-              case 'search_units': {
-                const argsSearch = call.args || {};
-                const filter = {
-                  projectId: await this.bitrixService.resolveProjectId(String(argsSearch.project ?? '')) ?? undefined,
-                  type: argsSearch.type as string | undefined,
-                  floor: argsSearch.floor as string | undefined,
-                };
-                const units = await this.bitrixService.searchCached(filter);
-                const top = units.slice(0, 8);
-                result = { count: units.length, showing: top.length, units: top.map(u => ({ id: u.id, name: u.name, project: u.projectName, price: u.totalPrice })) };
-                break;
-              }
-
-              case 'get_unit_details': {
-                const argsUnit = call.args || {};
-                const unit = await this.bitrixService.getNormalizedUnit(String(argsUnit.unitId));
-                result = unit ? unit : { error: 'Unit not found' };
-                break;
-              }
-
-              case 'get_project_info': {
-                const argsInfo = call.args || {};
-                const knowledge = await this.knowledgeService.search(String(argsInfo.question));
-                if (knowledge.length === 0) {
-                  result = { info: 'No information found in the knowledge base.' };
-                } else {
-                  result = { info: knowledge.map(k => `[${k.category} - ${k.topic}] ${k.content}`).join('\n') };
-                }
-                break;
-              }
-
-              case 'generate_and_send_proposal': {
-                const argsProp = call.args || {};
-                const unit = await this.bitrixService.getNormalizedUnit(String(argsProp.unitId));
-                if (!unit) {
-                  result = { error: 'Unit not found, cannot generate proposal.' };
-                } else {
-                  // Generate PDF
-                  const pdfBuffer = await this.pdfService.generatePaymentPlan(pushName, unit);
-                  generatedFile = {
-                    buffer: pdfBuffer,
-                    filename: `PCI_Payment_Plan_${unit.name}.pdf`
-                  };
-                  result = { success: true, message: 'PDF generated and ready to send. Tell the customer you have sent it.' };
-                }
-                break;
-              }
-
-              default:
-                result = { error: `Unknown tool: ${call.name}` };
+            // Capture generated files (PDF, DOCX, XLSX, PPTX, MD)
+            if (result?.fileBuffer) {
+              generatedFile = {
+                buffer: Buffer.from(result.fileBuffer, 'base64'),
+                filename: result.filename,
+              };
+              delete result.fileBuffer; // Omit binary buffer from LLM conversation turns
             }
           } catch (e: any) {
-            this.logger.error(`Tool execution failed: ${call.name}`, e.stack);
+            this.logger.error(`Tool execution error [${call.name}]: ${e.message}`, e.stack);
             result = { error: e.message };
           }
 
