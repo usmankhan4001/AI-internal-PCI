@@ -67,8 +67,9 @@ export class KnowledgeService {
 
       // Call Gemini for embedding
       const response = await this.ai.models.embedContent({
-        model: 'text-embedding-004',
+        model: 'gemini-embedding-001',
         contents: textToEmbed,
+        config: { outputDimensionality: 768 },
       });
 
       const embedding = response.embeddings?.[0]?.values;
@@ -142,8 +143,9 @@ export class KnowledgeService {
       if (chunk.trim().length < 20) continue; // skip tiny fragments
 
       const response = await this.ai.models.embedContent({
-        model: 'text-embedding-004',
+        model: 'gemini-embedding-001',
         contents: chunk,
+        config: { outputDimensionality: 768 },
       });
 
       const embedding = response.embeddings?.[0]?.values;
@@ -177,8 +179,9 @@ export class KnowledgeService {
 
     // 1. Embed the user query
     const response = await this.ai.models.embedContent({
-      model: 'text-embedding-004',
+      model: 'gemini-embedding-001',
       contents: query,
+      config: { outputDimensionality: 768 },
     });
     
     const embedding = response.embeddings?.[0]?.values;

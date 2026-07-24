@@ -8,5 +8,6 @@ import { AuthModule } from '../auth/auth.module';
   imports: [KnowledgeModule, AuthModule],
   controllers: [DriveController],
   providers: [DriveService],
+  exports: [DriveService],
 })
 export class DriveModule {}

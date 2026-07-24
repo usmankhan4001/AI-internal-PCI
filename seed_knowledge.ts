@@ -25,12 +25,19 @@ async function seed() {
     const filePath = path.join(KNOWLEDGE_DIR, file);
     const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
 
+    // Extract project name from filename
+    let projectName = 'PCI General';
+    if (file.toLowerCase().includes('buraq')) projectName = 'Buraq Heights';
+    else if (file.toLowerCase().includes('grand orchard')) projectName = 'Grand Orchard';
+    else if (file.toLowerCase().includes('river courtyard') || file.toLowerCase().includes('rcy')) projectName = 'River Courtyard';
+    else if (file.toLowerCase().includes('box park') || file.toLowerCase().includes('bp3')) projectName = 'Box Park 3';
+
     // Create Document record
     const docId = uuidv4();
     await client.query(
-      `INSERT INTO "Document" ("id", "filename", "type", "metadata", "createdAt") 
-       VALUES ($1, $2, $3, $4, NOW())`,
-      [docId, file, 'structured-json', { source: 'local_extract', chunks: data.length }]
+      `INSERT INTO "Document" ("id", "filename", "type", "department", "project", "sourceType", "metadata", "createdAt", "updatedAt") 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())`,
+      [docId, file, 'structured-json', 'sales', projectName, 'CHAT_UPLOAD', { source: 'local_extract', chunks: data.length }]
     );
 
     console.log(`\nIngesting ${file} (${data.length} chunks)...`);
@@ -41,8 +48,9 @@ async function seed() {
       
       try {
         const response = await ai.models.embedContent({
-          model: 'text-embedding-004',
+          model: 'gemini-embedding-001',
           contents: textToEmbed,
+          config: { outputDimensionality: 768 },
         });
 
         const embedding = response.embeddings?.[0]?.values;
