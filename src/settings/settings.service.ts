@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
 const DEFAULT_PERSONA = `You are the official AI Assistant and Real Estate Specialist for Premier Choice International (PCI). You chat with leads and team members on WhatsApp.
@@ -20,8 +20,19 @@ const DEFAULT_PERSONA = `You are the official AI Assistant and Real Estate Speci
 - NEVER claim you cannot generate PowerPoint slides, Word docs, Excel spreadsheets, or PDF proposals—you HAVE active tools to generate all of these!`;
 
 @Injectable()
-export class SettingsService {
+export class SettingsService implements OnModuleInit {
+  private readonly logger = new Logger(SettingsService.name);
+
   constructor(private prisma: PrismaService) {}
+
+  async onModuleInit() {
+    try {
+      await this.getSettings();
+      this.logger.log('Global persona settings initialized and synchronized with latest capabilities.');
+    } catch (e: any) {
+      this.logger.warn(`Failed to initialize settings on boot: ${e.message}`);
+    }
+  }
 
   async getSettings(): Promise<any> {
     let setting = await this.prisma.setting.findUnique({ where: { id: 'global' } });
@@ -35,7 +46,7 @@ export class SettingsService {
         },
       });
     } else {
-      // Update persona to ensure latest skills capabilities are reflected
+      // Overwrite DB persona on fetch to guarantee latest prompt capabilities are used
       setting = await this.prisma.setting.update({
         where: { id: 'global' },
         data: { persona: DEFAULT_PERSONA },
