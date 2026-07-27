@@ -32,6 +32,10 @@ export class DriveService {
     }
   }
 
+  get isConfigured(): boolean {
+    return !!this.drive;
+  }
+
   private ensureDrive() {
     if (!this.drive) {
       throw new HttpException('Google Drive integration is not configured', HttpStatus.SERVICE_UNAVAILABLE);
@@ -46,6 +50,7 @@ export class DriveService {
         q: "mimeType='application/vnd.google-apps.folder' and trashed=false",
         fields: 'files(id, name)',
         orderBy: 'name',
+        pageSize: 100,
       });
       return res.data.files || [];
     } catch (error) {
@@ -57,16 +62,58 @@ export class DriveService {
   async listFilesInFolder(folderId: string) {
     const drive = this.ensureDrive();
     try {
-      // List PDF, Word, CSV, TXT files
+      const sanitizedFolderId = folderId.replace(/'/g, "\\'");
       const res = await drive.files.list({
-        q: `'${folderId}' in parents and trashed=false and (mimeType='application/pdf' or mimeType='application/vnd.openxmlformats-officedocument.wordprocessingml.document' or mimeType='text/csv' or mimeType='text/plain')`,
-        fields: 'files(id, name, mimeType)',
+        q: `'${sanitizedFolderId}' in parents and trashed=false`,
+        fields: 'files(id, name, mimeType, size)',
         orderBy: 'name',
+        pageSize: 100,
       });
       return res.data.files || [];
     } catch (error) {
       this.logger.error('Error listing files', error);
       throw new HttpException('Failed to list files', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  async searchFiles(term: string) {
+    const drive = this.ensureDrive();
+    try {
+      const sanitizedTerm = term.replace(/'/g, "\\'");
+      const res = await drive.files.list({
+        q: `name contains '${sanitizedTerm}' and trashed=false`,
+        fields: 'files(id, name, mimeType, size, parents)',
+        pageSize: 50,
+      });
+      return res.data.files || [];
+    } catch (error) {
+      this.logger.error(`Error searching Drive files for '${term}'`, error);
+      return [];
+    }
+  }
+
+  async downloadFileBuffer(fileId: string): Promise<{ buffer: Buffer; filename: string; mimeType: string; size: number }> {
+    const drive = this.ensureDrive();
+    try {
+      const fileMeta = await drive.files.get({ fileId, fields: 'id, name, mimeType, size' });
+      const filename = fileMeta.data.name || 'document.pdf';
+      const mimeType = fileMeta.data.mimeType || 'application/pdf';
+
+      const response = await drive.files.get(
+        { fileId, alt: 'media' },
+        { responseType: 'arraybuffer' }
+      );
+
+      const buffer = Buffer.from(response.data as ArrayBuffer);
+      return {
+        buffer,
+        filename,
+        mimeType,
+        size: buffer.length,
+      };
+    } catch (error: any) {
+      this.logger.error(`Error downloading file ${fileId} from Drive: ${error.message}`);
+      throw error;
     }
   }
 
@@ -77,31 +124,18 @@ export class DriveService {
     category: string,
     project: string,
   ) {
-    const drive = this.ensureDrive();
     try {
-      // 1. Get file metadata for mimeType
-      const fileMeta = await drive.files.get({ fileId, fields: 'mimeType' });
-      const mimeType = fileMeta.data.mimeType || 'application/octet-stream';
+      const { buffer, mimeType } = await this.downloadFileBuffer(fileId);
 
-      // 2. Download the file
-      const response = await drive.files.get(
-        { fileId, alt: 'media' },
-        { responseType: 'arraybuffer' }
-      );
-      
-      const downloadedBuffer = Buffer.from(response.data as ArrayBuffer);
-
-      // 3. Create mock Multer file to pass to KnowledgeService
       const mockFile = {
         originalname: filename,
         mimetype: mimeType,
-        buffer: downloadedBuffer,
-        size: downloadedBuffer.length,
+        buffer,
+        size: buffer.length,
       } as Express.Multer.File;
 
-      // 4. Ingest via KnowledgeService
       const result = await this.knowledgeService.ingestFile(mockFile, department, category, project);
-      
+
       return {
         message: 'File synced and ingested successfully',
         result,
