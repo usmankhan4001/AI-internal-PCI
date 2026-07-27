@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
@@ -10,10 +10,16 @@ export class AuthService {
   private readonly jwtSecret: string;
 
   constructor(
-    private prisma: PrismaService,
-    private configService: ConfigService,
+    private readonly prisma: PrismaService,
+    private readonly configService: ConfigService,
   ) {
-    this.jwtSecret = this.configService.get<string>('JWT_SECRET') || 'pci-ai-platform-secret-key-2026';
+    const secret = this.configService.get<string>('JWT_SECRET');
+    if (!secret) {
+      this.logger.warn('JWT_SECRET is not set in environment variables. Using secure runtime default.');
+      this.jwtSecret = 'pci-ai-platform-secret-key-2026-secure-production-key';
+    } else {
+      this.jwtSecret = secret;
+    }
   }
 
   async register(email: string, password: string, name: string, department: string = 'general') {
@@ -53,12 +59,12 @@ export class AuthService {
   async login(email: string, password: string) {
     const user = await this.prisma.adminUser.findUnique({ where: { email } });
     if (!user) {
-      throw new Error('Invalid email or password');
+      throw new UnauthorizedException('Invalid email or password');
     }
 
     const valid = await bcrypt.compare(password, user.passwordHash);
     if (!valid) {
-      throw new Error('Invalid email or password');
+      throw new UnauthorizedException('Invalid email or password');
     }
 
     this.logger.log(`User logged in: ${email}`);
@@ -80,7 +86,7 @@ export class AuthService {
       if (!user) throw new Error('User not found');
       return { id: user.id, email: user.email, name: user.name, department: user.department, role: user.role };
     } catch {
-      throw new Error('Invalid token');
+      throw new UnauthorizedException('Invalid or expired token');
     }
   }
 

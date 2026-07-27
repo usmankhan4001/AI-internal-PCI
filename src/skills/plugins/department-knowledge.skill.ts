@@ -8,11 +8,11 @@ import { KnowledgeService } from '../../knowledge/knowledge.service';
 export class DepartmentKnowledgeSkill implements ISkill, OnModuleInit {
   readonly id = 'department_knowledge';
   readonly name = 'Company SSOT Knowledge Base Skill';
-  readonly description = 'Queries official PCI company knowledge: sales scripts, project brochures, HR policies, legal/registry rules, construction progress, and payment plans.';
+  readonly description = 'Queries official PCI company knowledge: project brochures, layout maps, floor plans, HR policies, legal rules, construction progress, and payment terms.';
 
   readonly systemPromptSnippet = `
-- **Company Knowledge Base (SSOT)**: Search structured company knowledge across departments (Sales, Marketing, HR, Legal, Construction, Accounts).
-- Provide accurate, verified, policy-backed answers using search_company_knowledge.
+- **Company Knowledge Base (SSOT)**: Always use search_company_knowledge to answer queries regarding project layout plans, brochures, amenities, specifications, or company background.
+- If a user asks for brochures, layout plans, or amenities for Buraq Heights, River Courtyard, Grand Orchard, or Box Park 3, call search_company_knowledge immediately.
   `.trim();
 
   constructor(
@@ -33,28 +33,34 @@ export class DepartmentKnowledgeSkill implements ISkill, OnModuleInit {
       {
         declaration: {
           name: 'search_company_knowledge',
-          description: 'Search official PCI company knowledge base for policies, project specs, floor layouts, payment plans, or FAQs.',
+          description: 'Search official PCI company knowledge base for project brochures, floor layout plans, amenities, specifications, or payment plan policies.',
           parameters: {
             type: Type.OBJECT,
             properties: {
-              query: { type: Type.STRING, description: 'Search question or topic' },
-              department: { type: Type.STRING, description: 'Optional department filter (sales, marketing, hr, legal, projects)' },
-              project: { type: Type.STRING, description: 'Optional project filter (River Courtyard, Grand Orchard, Box Park 3, Buraq Heights)' },
+              query: { type: Type.STRING, description: 'Search question or topic (e.g. Buraq Heights brochure layout plans)' },
+              department: { type: Type.STRING, description: 'Optional department filter' },
+              project: { type: Type.STRING, description: 'Optional project filter (e.g. Buraq Heights, River Courtyard, Grand Orchard)' },
             },
             required: ['query'],
           } as Schema,
         },
         handler: async (args, context) => {
-          // Security restriction: Don't show HR internal policies to public WhatsApp leads
           let deptFilter = args.department;
           if (deptFilter?.toLowerCase() === 'hr' && context.userRole === 'PUBLIC_CLIENT') {
             return { error: 'Internal HR policies are restricted to authorized team members.' };
           }
 
-          const results = await this.knowledgeService.search(args.query, 5, {
+          let results = await this.knowledgeService.search(args.query, 6, {
             department: deptFilter,
             project: args.project,
           });
+
+          // Fallback: If filtered search returned no results, retry without rigid project filter
+          if (results.length === 0 && args.project) {
+            results = await this.knowledgeService.search(`${args.project} ${args.query}`, 6, {
+              department: deptFilter,
+            });
+          }
 
           return {
             query: args.query,
@@ -63,6 +69,7 @@ export class DepartmentKnowledgeSkill implements ISkill, OnModuleInit {
               category: r.category,
               topic: r.topic,
               content: r.content,
+              metadata: r.metadata,
             })),
           };
         },

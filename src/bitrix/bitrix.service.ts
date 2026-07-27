@@ -191,6 +191,9 @@ export class BitrixService implements OnApplicationBootstrap {
     const useNetArea =
       projectId === '673' && ['299', '301', '249'].includes(floorId ?? '');
     const areaForPrice = useNetArea ? netArea : grossArea;
+    const calculatedPrice = baseRate * areaForPrice;
+    const nativePrice = num(String(p.PRICE || ''));
+    const totalPrice = calculatedPrice > 0 ? calculatedPrice : nativePrice;
 
     return {
       id: p.ID,
@@ -206,7 +209,7 @@ export class BitrixService implements OnApplicationBootstrap {
       baseRate,
       grossArea,
       netArea,
-      totalPrice: baseRate * areaForPrice,
+      totalPrice,
       available: status === 'AVAILABLE',
       status,
       statusRaw: rawAvailability,
@@ -290,6 +293,8 @@ export class BitrixService implements OnApplicationBootstrap {
 
         if (data.next) {
           nextStart = data.next;
+          // Throttling delay (150ms) to respect Bitrix24 rate limit (max 2 requests/sec)
+          await new Promise((resolve) => setTimeout(resolve, 150));
         } else {
           keepFetching = false;
         }

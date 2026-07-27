@@ -11,6 +11,8 @@ export interface StructuredKnowledgeInput {
   metadata?: any;
 }
 
+const DISTANCE_THRESHOLD = 0.50; // Cosine distance cutoff (values > 0.50 are irrelevant noise)
+
 @Injectable()
 export class KnowledgeService {
   private readonly logger = new Logger(KnowledgeService.name);
@@ -44,7 +46,6 @@ export class KnowledgeService {
       throw new HttpException('Input must be a non-empty array of structured knowledge.', HttpStatus.BAD_REQUEST);
     }
 
-    // Create a record for this data source
     const document = await this.prisma.document.create({
       data: {
         filename: sourceName,
@@ -62,10 +63,8 @@ export class KnowledgeService {
     for (const item of data) {
       if (!item.content || item.content.trim() === '') continue;
 
-      // Construct a highly rich string for embedding to ensure perfect semantic matching
       const textToEmbed = `Category: ${item.category}\nTopic: ${item.topic}\nDetails: ${item.content}`;
 
-      // Call Gemini for embedding
       const response = await this.ai.models.embedContent({
         model: 'gemini-embedding-001',
         contents: textToEmbed,
@@ -75,7 +74,6 @@ export class KnowledgeService {
       const embedding = response.embeddings?.[0]?.values;
       const fullJsonContent = JSON.stringify(item);
 
-      // Store the raw JSON string as the content alongside the vector embedding
       await this.prisma.$executeRaw`
         INSERT INTO "DocumentChunk" ("id", "documentId", "content", "embedding", "createdAt")
         VALUES (
@@ -122,7 +120,6 @@ export class KnowledgeService {
       throw new HttpException('No text could be extracted from the file.', HttpStatus.BAD_REQUEST);
     }
 
-    // Create document record
     const document = await this.prisma.document.create({
       data: {
         filename: file.originalname,
@@ -135,12 +132,11 @@ export class KnowledgeService {
       },
     });
 
-    // Chunk the text (roughly 500 chars per chunk with overlap)
     const chunks = this.chunkText(text, 500, 50);
     let ingestedCount = 0;
 
     for (const chunk of chunks) {
-      if (chunk.trim().length < 20) continue; // skip tiny fragments
+      if (chunk.trim().length < 20) continue;
 
       const response = await this.ai.models.embedContent({
         model: 'gemini-embedding-001',
@@ -168,7 +164,7 @@ export class KnowledgeService {
   }
 
   /**
-   * Search structured knowledge using pgvector cosine distance.
+   * Search structured knowledge using pgvector distance cutoff & metadata joining.
    */
   async search(
     query: string,
@@ -177,67 +173,93 @@ export class KnowledgeService {
   ): Promise<StructuredKnowledgeInput[]> {
     this.logger.log(`Searching knowledge base for: "${query}"`);
 
-    // 1. Embed the user query
     const response = await this.ai.models.embedContent({
       model: 'gemini-embedding-001',
       contents: query,
       config: { outputDimensionality: 768 },
     });
-    
+
     const embedding = response.embeddings?.[0]?.values;
     if (!embedding) {
       throw new Error('Failed to generate embedding for search query');
     }
 
-    let results;
+    const deptFilter = filters?.department ? `%${filters.department.toLowerCase()}%` : null;
+    const catFilter = filters?.category ? `%${filters.category.toLowerCase()}%` : null;
+    const projFilter = filters?.project ? `%${filters.project.toLowerCase()}%` : null;
 
-    // 2. Perform vector similarity search using Prisma raw query (<=> is cosine distance)
-    if (filters?.department || filters?.category || filters?.project) {
-      results = await this.prisma.$queryRaw<
-        Array<{ id: string; content: string; distance: number }>
-      >`
-        SELECT "DocumentChunk"."id", "DocumentChunk"."content", "DocumentChunk"."embedding" <=> ${embedding}::vector AS distance
-        FROM "DocumentChunk"
-        JOIN "Document" ON "Document"."id" = "DocumentChunk"."documentId"
-        WHERE (${filters.department || null}::text IS NULL OR "Document"."department" = ${filters.department})
-          AND (${filters.category || null}::text IS NULL OR "Document"."category" = ${filters.category})
-          AND (${filters.project || null}::text IS NULL OR "Document"."project" = ${filters.project})
-        ORDER BY distance ASC
-        LIMIT ${topK};
-      `;
-    } else {
-      results = await this.prisma.$queryRaw<
-        Array<{ id: string; content: string; distance: number }>
-      >`
-        SELECT "id", "content", "embedding" <=> ${embedding}::vector AS distance
-        FROM "DocumentChunk"
-        ORDER BY distance ASC
-        LIMIT ${topK};
-      `;
-    }
+    const results = await this.prisma.$queryRaw<
+      Array<{
+        id: string;
+        content: string;
+        filename: string;
+        project: string | null;
+        department: string;
+        category: string | null;
+        distance: number;
+      }>
+    >`
+      SELECT 
+        dc."id", 
+        dc."content", 
+        d."filename", 
+        d."project", 
+        d."department", 
+        d."category",
+        (dc."embedding" <=> ${embedding}::vector) AS distance
+      FROM "DocumentChunk" dc
+      JOIN "Document" d ON d."id" = dc."documentId"
+      WHERE (dc."embedding" <=> ${embedding}::vector) < ${DISTANCE_THRESHOLD}
+        AND (${deptFilter}::text IS NULL OR LOWER(d."department") LIKE ${deptFilter})
+        AND (${catFilter}::text IS NULL OR LOWER(d."category") LIKE ${catFilter})
+        AND (${projFilter}::text IS NULL OR LOWER(d."project") LIKE ${projFilter})
+      ORDER BY distance ASC
+      LIMIT ${topK};
+    `;
 
-    // 3. Map the raw content back — try JSON parse, fallback to plain text
-    return results.map((row: any) => {
+    // Map raw query back cleanly, preserving project and category
+    return results.map((row) => {
       try {
-        return JSON.parse(row.content) as StructuredKnowledgeInput;
+        const parsed = JSON.parse(row.content);
+        return {
+          category: parsed.category || row.category || 'general',
+          topic: parsed.topic || row.filename,
+          content: parsed.content || row.content,
+          metadata: {
+            project: row.project,
+            department: row.department,
+            filename: row.filename,
+            distance: row.distance,
+            ...(parsed.metadata || {}),
+          },
+        };
       } catch {
-        return { category: 'document', topic: 'extracted', content: row.content };
+        return {
+          category: row.category || 'document',
+          topic: row.filename,
+          content: row.content,
+          metadata: {
+            project: row.project,
+            department: row.department,
+            distance: row.distance,
+          },
+        };
       }
     });
   }
 
   async getAllDocuments(filters?: { department?: string; category?: string; project?: string }) {
     const where: any = {};
-    if (filters?.department) where.department = filters.department;
-    if (filters?.category) where.category = filters.category;
-    if (filters?.project) where.project = filters.project;
+    if (filters?.department) where.department = { contains: filters.department, mode: 'insensitive' };
+    if (filters?.category) where.category = { contains: filters.category, mode: 'insensitive' };
+    if (filters?.project) where.project = { contains: filters.project, mode: 'insensitive' };
 
     return this.prisma.document.findMany({
       where,
       include: {
-        _count: { select: { chunks: true } }
+        _count: { select: { chunks: true } },
       },
-      orderBy: { createdAt: 'desc' }
+      orderBy: { createdAt: 'desc' },
     });
   }
 
@@ -266,14 +288,10 @@ export class KnowledgeService {
   }
 
   async deleteDocument(id: string) {
-    // Due to constraints, delete chunks first then document
     await this.prisma.documentChunk.deleteMany({ where: { documentId: id } });
     return this.prisma.document.delete({ where: { id } });
   }
 
-  /**
-   * Simple text chunking with overlap
-   */
   private chunkText(text: string, chunkSize: number, overlap: number): string[] {
     const chunks: string[] = [];
     let start = 0;

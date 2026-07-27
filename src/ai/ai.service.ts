@@ -13,6 +13,8 @@ export interface AiResponse {
   };
 }
 
+const MAX_TOOL_LOOPS = 5;
+
 @Injectable()
 export class AiService {
   private readonly logger = new Logger(AiService.name);
@@ -59,8 +61,17 @@ ${skillPromptSnippets}
       // 2. Resolve Active Gemini Declarations for this user context
       const declarations = this.registry.getToolDeclarations(context);
 
+      // Format history turns cleanly for Gemini SDK
+      const formattedHistory = Array.isArray(history)
+        ? history.map((h) => ({
+            role: h.role === 'user' ? 'user' : 'model',
+            parts: Array.isArray(h.parts) ? h.parts : [{ text: String(h.text || h.content || '') }],
+          }))
+        : [];
+
       const chat = this.ai.chats.create({
         model: 'gemini-2.5-flash',
+        history: formattedHistory,
         config: {
           systemInstruction,
           temperature: 0.2,
@@ -70,14 +81,16 @@ ${skillPromptSnippets}
 
       let response = await chat.sendMessage({ message: userMessage });
 
-      // 3. Autonomous Function Execution Loop
-      while (response.functionCalls && response.functionCalls.length > 0) {
+      // 3. Autonomous Function Execution Loop with Circuit Breaker
+      let loopCount = 0;
+      while (response.functionCalls && response.functionCalls.length > 0 && loopCount < MAX_TOOL_LOOPS) {
+        loopCount++;
         const calls = response.functionCalls;
         const toolResponses = [];
 
         for (const call of calls) {
           if (!call.name) continue;
-          this.logger.log(`Invoking tool [${call.name}] for user [${pushName}]`);
+          this.logger.log(`[Loop ${loopCount}] Invoking tool [${call.name}] for user [${pushName}]`);
           let result: any;
 
           try {
